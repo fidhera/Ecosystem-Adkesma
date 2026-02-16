@@ -61,10 +61,12 @@ def sync_portal(source_name, news_fetcher, history):
         print(f"[!] Gagal menarik data {source_name}: {e}")
         return history
 
-    webhook_url = os.getenv('DISCORD_WEBHOOK')
+    # MODIFIKASI: Ambil webhook dinamis berdasarkan nama portal (BAAK_WEBHOOK, dsb)
+    webhook_key = f"{source_name.upper()}_WEBHOOK"
+    webhook_url = os.getenv(webhook_key)
 
     if not webhook_url:
-        print(f"[!] Webhook DISCORD_WEBHOOK tidak ditemukan")
+        print(f"[!] Webhook {webhook_key} tidak ditemukan di GitHub Secrets")
         return history
 
     history_key = f"{source_name.lower()}_history"

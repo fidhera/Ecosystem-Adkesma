@@ -2,8 +2,8 @@ name: Gunadarma News Scraper
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # Cek setiap 15 menit
-  workflow_dispatch: # Tombol Manual
+    - cron: '*/15 * * * *' # Gas tiap 15 menit
+  workflow_dispatch: # Buat lo klik Run manual
 
 jobs:
   build:
@@ -29,10 +29,13 @@ jobs:
 
       - name: Run Scraper
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          # WAJIB: Daftarin 3 Secret lo di sini
+          BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
+          LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
+          STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
         run: python main.py
 
-      - name: Commit Data Changes # Simpan riwayat agar tidak kirim berita berulang
+      - name: Commit Data Changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
