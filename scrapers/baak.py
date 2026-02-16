@@ -1,26 +1,15 @@
-import undetected_chromedriver as uc
+import requests
 from bs4 import BeautifulSoup
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
-import os, time
 
 def get_all_baak_news():
-    is_github = os.getenv('GITHUB_ACTIONS') == 'true'
-    options = uc.ChromeOptions()
-    if is_github: options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    
-    driver = None
+    url = "https://baak.gunadarma.ac.id/beritabaak"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     news_list = []
     try:
-        driver = uc.Chrome(options=options)
-        driver.get("https://baak.gunadarma.ac.id/beritabaak")
-        WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.CLASS_NAME, "post-news")))
-        
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        response = requests.get(url, headers=headers, timeout=20)
+        soup = BeautifulSoup(response.text, 'html.parser')
         articles = soup.find_all('article', class_='post-news')
         for article in articles:
             h6 = article.find('h6')
@@ -32,9 +21,7 @@ def get_all_baak_news():
             link = a['href'] if a['href'].startswith('http') else f"https://baak.gunadarma.ac.id{a['href']}"
             date = article.find('div', class_='post-news-meta').get_text(strip=True) if article.find('div', class_='post-news-meta') else "N/A"
             news_list.append({"title": title, "link": link, "date": date})
-            
         return news_list[::-1]
-    finally:
-        if driver:
-            try: driver.quit()
-            except: pass
+    except Exception as e:
+        print(f"[!] BAAK Requests Error: {e}")
+        return []
