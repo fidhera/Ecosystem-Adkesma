@@ -8,7 +8,10 @@ import time
 def get_all_baak_news():
     url = "https://baak.gunadarma.ac.id/beritabaak"
     options = uc.ChromeOptions()
-    options.add_argument('--headless')
+    
+    # KALO MAU LIAT POPUP (LOKAL), KOMENTARI BARIS DI BAWAH INI PAKE '#'
+    options.add_argument('--headless') 
+    
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
@@ -17,13 +20,18 @@ def get_all_baak_news():
     news_list = []
     try:
         driver = uc.Chrome(options=options)
+        driver.set_page_load_timeout(60)
         driver.get(url)
-        # Tunggu sampai elemen berita muncul
-        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CLASS_NAME, "post-news")))
+        
+        # Tunggu manual biar pasti
+        time.sleep(5)
+        
+        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CLASS_NAME, "post-news")))
         
         html = driver.page_source
         soup = BeautifulSoup(html, 'html.parser')
         articles = soup.find_all('article', class_='post-news')
+        
         for article in articles:
             h6_tag = article.find('h6')
             if not h6_tag: continue
@@ -36,11 +44,14 @@ def get_all_baak_news():
             meta_div = article.find('div', class_='post-news-meta')
             if meta_div: date = meta_div.get_text(strip=True)
             news_list.append({"title": title, "link": link, "date": date})
+            
         news_list.reverse()
         return news_list
+    except Exception as e:
+        print(f"[!] BAAK Scraper Error: {e}")
+        return []
     finally:
         if driver:
             try:
                 driver.quit()
-            except:
-                pass
+            except: pass
