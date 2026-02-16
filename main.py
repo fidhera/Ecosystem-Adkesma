@@ -5,7 +5,6 @@ import time
 import warnings
 from dotenv import load_dotenv 
 
-# Import semua scraper
 from scrapers.baak import get_all_baak_news
 from scrapers.lepkom import get_all_lepkom_news
 from scrapers.studentsite import get_all_studentsite_news
@@ -28,15 +27,16 @@ def load_history():
 
 def save_history(history):
     if not os.path.exists('data'): os.makedirs('data')
+    # Biar gak numpuk, kita simpan cuma 20 judul terakhir per portal
+    for key in history:
+        history[key] = history[key][-20:]
     with open(DATA_FILE, "w") as f:
         json.dump(history, f, indent=4)
 
 def send_to_discord(webhook_url, news, source_name):
     display_name = f"ECA Monitor - {source_name}"
     print(f"[+] [{source_name}] Mengirim: {news['title']}")
-    
     colors = {"BAAK": 3447003, "LEPKOM": 3066993, "STUDENTSITE": 15105570}
-    
     payload = {
         "username": display_name,
         "embeds": [{
@@ -54,14 +54,12 @@ def send_to_discord(webhook_url, news, source_name):
 
 def sync_portal(source_name, news_fetcher, history):
     print(f"\n--- SINKRONISASI PORTAL {source_name} ---")
-    
     try:
         all_news = news_fetcher()
     except Exception as e:
         print(f"[!] Gagal menarik data {source_name}: {e}")
         return history
 
-    # MODIFIKASI: Ambil webhook dinamis berdasarkan nama portal (BAAK_WEBHOOK, dsb)
     webhook_key = f"{source_name.upper()}_WEBHOOK"
     webhook_url = os.getenv(webhook_key)
 
@@ -91,7 +89,6 @@ def main():
         ("LEPKOM", get_all_lepkom_news),
         ("STUDENTSITE", get_all_studentsite_news),
     ]
-    
     try:
         for name, fetcher in portals:
             history = sync_portal(name, fetcher, history)
