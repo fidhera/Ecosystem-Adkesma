@@ -2,8 +2,12 @@ name: Gunadarma News Scraper
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # Gas tiap 15 menit
-  workflow_dispatch: # Buat lo klik Run manual
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+# TAMBAHKAN INI: Biar bot punya izin nulis file
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -29,7 +33,6 @@ jobs:
 
       - name: Run Scraper
         env:
-          # WAJIB: Daftarin 3 Secret lo di sini
           BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
           LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
           STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
@@ -39,6 +42,7 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          # Kita cuma simpan history berita, folder __pycache__ kita abaikan
           git add data/last_updates.json
-          git commit -m "Update news history" || echo "No changes to commit"
-          git push
+          git commit -m "Update news history [skip ci]" || echo "No changes to commit"
+          git push origin main
