@@ -83,18 +83,35 @@ def sync_portal(source_name, news_fetcher, history):
     print(f"--- {source_name} SELESAI: {sent_count} BERITA TERKIRIM ---")
     return history
 
+import sys
+
 def main():
-    history = load_history()
+    # Cek apakah lo jalanin pake 'python main.py --test'
+    is_test = "--test" in sys.argv
+    
+    if is_test:
+        print("[!] RUNNING IN TEST MODE: Ignoring history...")
+        history = {} # History dikosongin cuma buat sesi ini
+    else:
+        history = load_history()
+        
     portals = [
         ("BAAK", get_all_baak_news),
         ("LEPKOM", get_all_lepkom_news),
         ("STUDENTSITE", get_all_studentsite_news),
     ]
+    
     try:
         for name, fetcher in portals:
             history = sync_portal(name, fetcher, history)
-        save_history(history)
-        print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
+            
+        # Kalau cuma testing, jangan simpan hasilnya ke JSON
+        if not is_test:
+            save_history(history)
+            print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
+        else:
+            print("\n[TEST DONE] No data saved to history.")
+            
     except Exception as e:
         print(f"\n[!] Kesalahan sistem: {e}")
 

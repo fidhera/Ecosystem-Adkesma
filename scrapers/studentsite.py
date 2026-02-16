@@ -1,55 +1,61 @@
 import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
-import time
+from selenium.webdriver.common.by import By
+import os, time
 
 def get_all_studentsite_news():
-    url = "https://studentsite.gunadarma.ac.id/index.php/site/news"
+    is_github = os.getenv('GITHUB_ACTIONS') == 'true'
     options = uc.ChromeOptions()
     
-    # KALO MAU LIAT POPUP (LOKAL), KOMENTARI BARIS DI BAWAH INI PAKE '#'
-    options.add_argument('--headless') 
+    if is_github:
+        options.add_argument('--headless')
+    
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
     
     driver = None
     news_list = []
     try:
         driver = uc.Chrome(options=options)
-        driver.get(url)
+        driver.get("https://studentsite.gunadarma.ac.id/index.php/site/news")
         
-        # Studentsite emang butuh waktu render lama
-        time.sleep(12) 
+        # Jeda lebih lama untuk bypass Cloudflare verification
+        time.sleep(15) 
         
-        html = driver.page_source
-        soup = BeautifulSoup(html, 'html.parser')
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
         boxes = soup.find_all('div', class_='content-box')
         
         if not boxes:
-            print("[!] Studentsite: content-box gak ketemu, coba fallback...")
-            headers = soup.find_all('h3', class_='content-box-header')
-            for h in headers[:10]:
-                link_tag = h.find('a', href=True)
-                if not link_tag: continue
-                title = link_tag.get_text(strip=True).replace("[TERBARU]", "").strip()
-                link = link_tag['href']
-                if not link.startswith('http'): link = f"https://studentsite.gunadarma.ac.id{link}"
-                news_list.append({"title": title, "link": link, "date": "N/A"})
-        else:
-            for box in boxes[:10]:
-                header = box.find('h3', class_='content-box-header')
-                if not header: continue
-                link_tag = header.find('a', href=True)
-                if not link_tag: continue
-                title = link_tag.get_text(strip=True).replace("[TERBARU]", "").strip()
-                link = link_tag['href']
-                if not link.startswith('http'): link = f"https://studentsite.gunadarma.ac.id{link}"
-                date = "N/A"
-                date_div = box.find('div', class_='font-gray')
-                if date_div:
-                    date_text = date_div.get_text(strip=True)
-                    if "pada" in date_text: date = date_text.split("pada")[-1].strip()
-                news_list.append({"title": title, "link": link, "date": date})
+            return []
+
+        for box in boxes[:10]:
+            header = box.find('h3', class_='content-box-header')
+            if not header:
+                continue
+                
+            link_tag = header.find('a')
+            if not link_tag:
+                continue
             
-        news_list.reverse()
-        return news_list
+            # Perbaikan: Cek keberadaan teks sebelum memanggil .strip()
+            title_raw = link_tag.get_text(strip=True) if link_tag else "N/A"
+            title = title_raw.replace("[TERBARU]", "").strip()
+            
+            link = link_tag.get('href', '')
+            if link and not link.startswith('http'):
+                link = f"https://studentsite.gunadarma.ac.id{link}"
+            
+            date = "N/A"
+            date_div = box.find('div', class_='font-gray')
+            if date_div:
+                date_text = date_div.get_text(strip=True)
+                if "pada" in date_text:
+                    date = date_text.split("pada")[-1].strip()
+            
+            news_list.append({"title": title, "link": link, "date": date})
+            
+        return news_list[::-1]
     except Exception as e:
         print(f"[!] STUDENTSITE Scraper Error: {e}")
         return []
@@ -57,4 +63,5 @@ def get_all_studentsite_news():
         if driver:
             try:
                 driver.quit()
-            except: pass
+            except:
+                pass
