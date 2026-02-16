@@ -2,4 +2,4 @@ requests
 beautifulsoup4
 python-dotenv
 selenium==4.18.1
-undetected-chromedriver==3.5.5
+undetected-chromedriver

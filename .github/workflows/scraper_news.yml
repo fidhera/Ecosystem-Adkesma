@@ -2,11 +2,11 @@ name: Gunadarma News Scraper
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # Cek setiap 5 menit biar paling gercep!
-  workflow_dispatch: # Biar lo bisa klik tombol manual
+    - cron: '*/5 * * * *' # Cek setiap 5 menit agar info kampus paling gercep!
+  workflow_dispatch: # Tombol Manual buat lo ngetes kapan aja
 
 permissions:
-  contents: write
+  contents: write # Wajib agar bot bisa simpan history berita ke repository
 
 jobs:
   build:
@@ -20,12 +20,15 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Google Chrome (Stable)
+      - name: Install Google Chrome (Latest Stable)
         run: |
+          sudo apt-get update
+          sudo apt-get install -y wget curl unzip
           wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
           echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
           sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+          sudo apt-get install --only-upgrade google-chrome-stable || sudo apt-get install -y google-chrome-stable
+          google-chrome --version # Biar kita bisa cek versi Chrome di log Actions
 
       - name: Install Dependencies
         run: |
@@ -34,12 +37,13 @@ jobs:
 
       - name: Run Scraper
         env:
+          # Pastikan 3 nama Secret ini sudah lo buat di GitHub Settings
           BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
           LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
           STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
         run: python main.py
 
-      - name: Commit Data Changes
+      - name: Commit Data Changes # Biar berita yang sudah dikirim tidak dikirim ulang
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
