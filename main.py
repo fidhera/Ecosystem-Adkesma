@@ -3,13 +3,13 @@ import json
 import requests
 import time
 import warnings
+import sys
 from dotenv import load_dotenv 
 
 from scrapers.baak import get_all_baak_news
 from scrapers.lepkom import get_all_lepkom_news
 from scrapers.studentsite import get_all_studentsite_news
 
-# Membungkam peringatan ResourceWarning agar terminal bersih
 warnings.filterwarnings("ignore", category=ResourceWarning)
 
 if os.path.exists(".env"):
@@ -18,17 +18,28 @@ if os.path.exists(".env"):
 DATA_FILE = "data/last_updates.json"
 
 def load_history():
+    default_history = {"baak_history": [], "lepkom_history": [], "studentsite_history": []}
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f:
                 content = f.read()
-                return json.loads(content) if content else {}
-        except: return {}
-    return {}
+                if not content.strip():
+                    return default_history
+                data = json.loads(content)
+                # Pastikan semua key ada
+                for key in default_history:
+                    if key not in data:
+                        data[key] = []
+                return data
+        except Exception as e:
+            print(f"[!] Error load history: {e}")
+            return default_history
+    return default_history
 
 def save_history(history):
-    if not os.path.exists('data'): os.makedirs('data')
-    # Limit 20 berita terakhir biar file gak bengkak
+    if not os.path.exists('data'): 
+        os.makedirs('data')
+    # Limit 20 berita terakhir
     for key in history:
         history[key] = history[key][-20:]
     with open(DATA_FILE, "w") as f:
@@ -49,14 +60,19 @@ def send_to_discord(webhook_url, news, source_name):
         }]
     }
     try:
-        res = requests.post(webhook_url, json=payload, timeout=10)
+        res = requests.post(webhook_url, json=payload, timeout=15)
         return res.status_code
-    except: return None
+    except Exception as e:
+        print(f"[!] Discord Error: {e}")
+        return None
 
 def sync_portal(source_name, news_fetcher, history):
     print(f"\n--- SINKRONISASI PORTAL {source_name} ---")
     try:
         all_news = news_fetcher()
+        if not all_news:
+            print(f"[!] Tidak ada berita ditemukan untuk {source_name}")
+            return history
     except Exception as e:
         print(f"[!] Gagal menarik data {source_name}: {e}")
         return history
@@ -69,7 +85,8 @@ def sync_portal(source_name, news_fetcher, history):
         return history
 
     history_key = f"{source_name.lower()}_history"
-    if history_key not in history: history[history_key] = []
+    if history_key not in history: 
+        history[history_key] = []
 
     sent_count = 0
     for news in all_news:
@@ -78,20 +95,17 @@ def sync_portal(source_name, news_fetcher, history):
             if status in [200, 204]: 
                 history[history_key].append(news['title'])
                 sent_count += 1
-                time.sleep(1) # Jeda dikit biar gak kena rate limit Discord
+                time.sleep(2) # Jeda lebih lama biar aman dari rate limit
     
     print(f"--- {source_name} SELESAI: {sent_count} BERITA TERKIRIM ---")
     return history
 
-import sys
-
 def main():
-    # Cek apakah lo jalanin pake 'python main.py --test'
     is_test = "--test" in sys.argv
     
     if is_test:
         print("[!] RUNNING IN TEST MODE: Ignoring history...")
-        history = {} # History dikosongin cuma buat sesi ini
+        history = {"baak_history": [], "lepkom_history": [], "studentsite_history": []}
     else:
         history = load_history()
         
@@ -101,19 +115,14 @@ def main():
         ("STUDENTSITE", get_all_studentsite_news),
     ]
     
-    try:
-        for name, fetcher in portals:
-            history = sync_portal(name, fetcher, history)
-            
-        # Kalau cuma testing, jangan simpan hasilnya ke JSON
-        if not is_test:
-            save_history(history)
-            print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
-        else:
-            print("\n[TEST DONE] No data saved to history.")
-            
-    except Exception as e:
-        print(f"\n[!] Kesalahan sistem: {e}")
+    for name, fetcher in portals:
+        history = sync_portal(name, fetcher, history)
+        
+    if not is_test:
+        save_history(history)
+        print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
+    else:
+        print("\n[TEST DONE] No data saved to history.")
 
 if __name__ == "__main__":
     main()
