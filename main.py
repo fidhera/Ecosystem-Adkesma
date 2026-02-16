@@ -12,7 +12,6 @@ from scrapers.studentsite import get_all_studentsite_news
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
 
-# Load .env hanya jika berjalan di lokal (PC)
 if os.path.exists(".env"):
     load_dotenv()
 
@@ -36,7 +35,6 @@ def send_to_discord(webhook_url, news, source_name):
     display_name = f"ECA Monitor - {source_name}"
     print(f"[+] [{source_name}] Mengirim: {news['title']}")
     
-    # Warna Embed Discord
     colors = {"BAAK": 3447003, "LEPKOM": 3066993, "STUDENTSITE": 15105570}
     
     payload = {
@@ -63,7 +61,6 @@ def sync_portal(source_name, news_fetcher, history):
         print(f"[!] Gagal menarik data {source_name}: {e}")
         return history
 
-    # Mengambil satu webhook utama dari GitHub Secrets / .env
     webhook_url = os.getenv('DISCORD_WEBHOOK')
 
     if not webhook_url:
@@ -87,7 +84,6 @@ def sync_portal(source_name, news_fetcher, history):
 
 def main():
     history = load_history()
-    
     portals = [
         ("BAAK", get_all_baak_news),
         ("LEPKOM", get_all_lepkom_news),
@@ -98,9 +94,9 @@ def main():
         for name, fetcher in portals:
             history = sync_portal(name, fetcher, history)
         save_history(history)
-        print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron sepenuhnya.")
+        print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
     except Exception as e:
-        print(f"\n[!] Terjadi kesalahan pada sistem utama: {e}")
+        print(f"\n[!] Kesalahan sistem: {e}")
 
 if __name__ == "__main__":
     main()
