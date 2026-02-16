@@ -17,9 +17,9 @@ def get_all_studentsite_news():
         driver = uc.Chrome(options=options)
         driver.get(url)
         try:
-            WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CLASS_NAME, "content-box")))
+            WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.CLASS_NAME, "content-box")))
         except: pass
-        time.sleep(5) 
+        time.sleep(3) 
         html = driver.page_source
         soup = BeautifulSoup(html, 'html.parser')
         boxes = soup.find_all('div', class_='content-box')[:10] 
@@ -41,5 +41,7 @@ def get_all_studentsite_news():
         return news_list
     finally:
         if driver:
-            driver.service.stop()
-            driver.quit()
+            try:
+                driver.quit()
+            except:
+                pass

@@ -16,7 +16,7 @@ def get_all_lepkom_news():
     try:
         driver = uc.Chrome(options=options)
         driver.get(url)
-        WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.CLASS_NAME, "blog-post")))
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CLASS_NAME, "blog-post")))
         html = driver.page_source
         soup = BeautifulSoup(html, 'html.parser')
         articles = soup.find_all('div', class_='blog-post')
@@ -36,4 +36,8 @@ def get_all_lepkom_news():
         news_list.reverse()
         return news_list
     finally:
-        if driver: driver.quit()
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass

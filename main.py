@@ -9,6 +9,7 @@ from scrapers.baak import get_all_baak_news
 from scrapers.lepkom import get_all_lepkom_news
 from scrapers.studentsite import get_all_studentsite_news
 
+# Membungkam peringatan ResourceWarning agar terminal bersih
 warnings.filterwarnings("ignore", category=ResourceWarning)
 
 if os.path.exists(".env"):
@@ -27,7 +28,7 @@ def load_history():
 
 def save_history(history):
     if not os.path.exists('data'): os.makedirs('data')
-    # Biar gak numpuk, kita simpan cuma 20 judul terakhir per portal
+    # Limit 20 berita terakhir biar file gak bengkak
     for key in history:
         history[key] = history[key][-20:]
     with open(DATA_FILE, "w") as f:
@@ -48,7 +49,7 @@ def send_to_discord(webhook_url, news, source_name):
         }]
     }
     try:
-        res = requests.post(webhook_url, json=payload)
+        res = requests.post(webhook_url, json=payload, timeout=10)
         return res.status_code
     except: return None
 
@@ -64,7 +65,7 @@ def sync_portal(source_name, news_fetcher, history):
     webhook_url = os.getenv(webhook_key)
 
     if not webhook_url:
-        print(f"[!] Webhook {webhook_key} tidak ditemukan di GitHub Secrets")
+        print(f"[!] Webhook {webhook_key} tidak ditemukan")
         return history
 
     history_key = f"{source_name.lower()}_history"
@@ -77,7 +78,7 @@ def sync_portal(source_name, news_fetcher, history):
             if status in [200, 204]: 
                 history[history_key].append(news['title'])
                 sent_count += 1
-                time.sleep(2)
+                time.sleep(1) # Jeda dikit biar gak kena rate limit Discord
     
     print(f"--- {source_name} SELESAI: {sent_count} BERITA TERKIRIM ---")
     return history

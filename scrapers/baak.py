@@ -18,7 +18,9 @@ def get_all_baak_news():
     try:
         driver = uc.Chrome(options=options)
         driver.get(url)
-        WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.CLASS_NAME, "post-news")))
+        # Tunggu sampai elemen berita muncul
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CLASS_NAME, "post-news")))
+        
         html = driver.page_source
         soup = BeautifulSoup(html, 'html.parser')
         articles = soup.find_all('article', class_='post-news')
@@ -38,5 +40,7 @@ def get_all_baak_news():
         return news_list
     finally:
         if driver:
-            driver.service.stop()
-            driver.quit()
+            try:
+                driver.quit()
+            except:
+                pass
