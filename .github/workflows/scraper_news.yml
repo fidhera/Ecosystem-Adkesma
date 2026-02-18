@@ -2,7 +2,7 @@ name: Gunadarma News Scraper
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # Cek setiap 5 menit agar info kampus paling gercep!
+    - cron: '0 * * * *' # OTOMATIS RUN SETIAP 1 JAM (Menit ke-0)
   workflow_dispatch: # Tombol Manual buat lo ngetes kapan aja
 
 permissions:
@@ -28,7 +28,7 @@ jobs:
           echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
           sudo apt-get update
           sudo apt-get install --only-upgrade google-chrome-stable || sudo apt-get install -y google-chrome-stable
-          google-chrome --version # Biar kita bisa cek versi Chrome di log Actions
+          google-chrome --version
 
       - name: Install Dependencies
         run: |
@@ -37,16 +37,18 @@ jobs:
 
       - name: Run Scraper
         env:
-          # Pastikan 3 nama Secret ini sudah lo buat di GitHub Settings
           BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
           LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
           STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
+          # TAMBAHAN: Mastiin sistem tau lokasi Chrome
+          CHROME_BIN: /usr/bin/google-chrome
         run: python main.py
 
-      - name: Commit Data Changes # Biar berita yang sudah dikirim tidak dikirim ulang
+      - name: Commit Data Changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add data/last_updates.json
+          # Tambahin [skip ci] biar gak looping build
           git commit -m "Update news history [skip ci]" || echo "No changes to commit"
           git push origin main
