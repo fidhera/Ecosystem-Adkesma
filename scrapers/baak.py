@@ -5,23 +5,26 @@ import time, os
 def get_all_baak_news():
     is_railway = os.getenv('RAILWAY_STATIC_URL') is not None
     options = uc.ChromeOptions()
-    if is_railway:
-        options.add_argument('--headless')
     
+    # Argumen wajib buat server cloud agar tidak macet di 'Starting Container'
+    options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--single-process')
+    options.binary_location = "/usr/bin/google-chrome" # Lokasi Chrome di Docker lo
     
     driver = None
     news_list = []
     try:
+        print("[BAAK] Memulai browser...")
         driver = uc.Chrome(options=options)
         driver.get("https://baak.gunadarma.ac.id/beritabaak")
         
-        # Ditambah jadi 15 detik biar Cloudflare-nya bener-bener lewat
+        print("[BAAK] Menunggu Cloudflare (15s)...")
         time.sleep(15) 
         
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        # Sesuai inspect element BAAK yang lo kasih sebelumnya
         articles = soup.find_all('article', class_='post-news')
         
         for article in articles:
@@ -35,17 +38,14 @@ def get_all_baak_news():
                 date = meta.get_text(strip=True) if meta else "N/A"
                 news_list.append({"title": title, "link": link, "date": date})
         
-        if not news_list:
-            print("[!] BAAK: Berhasil akses tapi tidak ada tag berita yang ditemukan.")
-            
+        print(f"[BAAK] Berhasil menarik {len(news_list)} berita.")
         return news_list[::-1]
     except Exception as e:
-        print(f"[!] BAAK Error: {e}")
+        print(f"[BAAK Error] {e}")
         return []
     finally:
         if driver:
             try:
-                driver.close() # Pake close dulu sebelum quit biar WinError 6 berkurang
                 driver.quit()
             except:
                 pass

@@ -119,15 +119,12 @@ def run_logic():
     print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
 
 if __name__ == "__main__":
-    try:
-        while True:
-            run_logic()
-            print("\n[*] Menunggu 1 jam untuk pengecekan berikutnya (Tekan Ctrl+C untuk berhenti)...")
-            time.sleep(3600)
-    except KeyboardInterrupt:
-        print("\n[!] Bot dihentikan secara manual oleh pengguna.")
-        # Keluar secara bersih tanpa memicu traceback panjang
+    print("[SYSTEM] ECA Monitor Cloud Version Starting...")
+    while True:
         try:
-            sys.exit(0)
-        except SystemExit:
-            os._exit(0)
+            run_logic()
+        except Exception as e:
+            print(f"[CRITICAL ERROR] {e}")
+            
+        print("\n[*] Sinkronisasi selesai. Tidur 1 jam...")
+        time.sleep(3600)
