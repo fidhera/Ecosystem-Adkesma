@@ -26,7 +26,6 @@ def load_history():
                 if not content.strip():
                     return default_history
                 data = json.loads(content)
-                # Pastikan semua key ada
                 for key in default_history:
                     if key not in data:
                         data[key] = []
@@ -39,7 +38,6 @@ def load_history():
 def save_history(history):
     if not os.path.exists('data'): 
         os.makedirs('data')
-    # Limit 20 berita terakhir
     for key in history:
         history[key] = history[key][-20:]
     with open(DATA_FILE, "w") as f:
@@ -95,14 +93,13 @@ def sync_portal(source_name, news_fetcher, history):
             if status in [200, 204]: 
                 history[history_key].append(news['title'])
                 sent_count += 1
-                time.sleep(2) # Jeda lebih lama biar aman dari rate limit
+                time.sleep(2)
     
     print(f"--- {source_name} SELESAI: {sent_count} BERITA TERKIRIM ---")
     return history
 
 def main():
     is_test = "--test" in sys.argv
-    
     if is_test:
         print("[!] RUNNING IN TEST MODE: Ignoring history...")
         history = {"baak_history": [], "lepkom_history": [], "studentsite_history": []}

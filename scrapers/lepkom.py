@@ -17,7 +17,7 @@ def get_all_lepkom_news():
     driver = None
     news_list = []
     try:
-        # Definisi path chrome untuk lingkungan GitHub
+        # Pake path chrome github biar gak error session
         chrome_path = "/usr/bin/google-chrome" if is_github else None
         
         driver = uc.Chrome(options=options, browser_executable_path=chrome_path)
@@ -30,7 +30,7 @@ def get_all_lepkom_news():
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         articles = soup.find_all('div', class_='blog-post')
         
-        # Sesuai permintaan: Ambil 5 berita terbaru saja
+        # Limit 5 berita sesuai mau lo
         for article in articles[:5]:
             info = article.find('div', class_='ttr-post-info')
             if not info: continue
@@ -53,7 +53,5 @@ def get_all_lepkom_news():
         return []
     finally:
         if driver:
-            try:
-                driver.quit()
-            except:
-                pass
+            try: driver.quit()
+            except: pass
