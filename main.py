@@ -119,8 +119,15 @@ def run_logic():
     print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
 
 if __name__ == "__main__":
-    # Loop 1 jam untuk Railway (Always-On)
-    while True:
-        run_logic()
-        print("\n[*] Menunggu 1 jam untuk pengecekan berikutnya...")
-        time.sleep(3600)
+    try:
+        while True:
+            run_logic()
+            print("\n[*] Menunggu 1 jam untuk pengecekan berikutnya (Tekan Ctrl+C untuk berhenti)...")
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        print("\n[!] Bot dihentikan secara manual oleh pengguna.")
+        # Keluar secara bersih tanpa memicu traceback panjang
+        try:
+            sys.exit(0)
+        except SystemExit:
+            os._exit(0)
