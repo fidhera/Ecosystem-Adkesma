@@ -106,33 +106,21 @@ def sync_portal(source_name, news_fetcher, history):
     print(f"--- {source_name} SELESAI: {sent_count} BERITA TERKIRIM ---")
     return history
 
-def main():
-    is_test = "--test" in sys.argv
-
-    if is_test:
-        print("[!] RUNNING IN TEST MODE: Ignoring history...")
-        history = {
-            "baak_history": [],
-            "lepkom_history": [],
-            "studentsite_history": []
-        }
-    else:
-        history = load_history()
-
+def run_logic():
+    history = load_history()
     portals = [
         ("BAAK", get_all_baak_news),
         ("LEPKOM", get_all_lepkom_news),
         ("STUDENTSITE", get_all_studentsite_news),
     ]
-
     for name, fetcher in portals:
         history = sync_portal(name, fetcher, history)
-
-    if not is_test:
-        save_history(history)
-        print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
-    else:
-        print("\n[TEST DONE] No data saved to history.")
+    save_history(history)
+    print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
 
 if __name__ == "__main__":
-    main()
+    # Loop 1 jam untuk Railway (Always-On)
+    while True:
+        run_logic()
+        print("\n[*] Menunggu 1 jam untuk pengecekan berikutnya...")
+        time.sleep(3600)

@@ -2,3 +2,5 @@ playwright==1.44.0
 beautifulsoup4
 requests
 python-dotenv
+
+#playwright==1.41.2
