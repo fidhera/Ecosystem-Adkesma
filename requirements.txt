@@ -1,6 +1,4 @@
-cloudscraper==1.2.71
+playwright==1.44.0
 beautifulsoup4
 requests
 python-dotenv
-undetected-chromedriver==3.5.5
-selenium==4.18.1
