@@ -1,72 +1,56 @@
-import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 import time
 import os
-import re
-import shutil
 
-def get_chrome_version_local():
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        return None
-    try:
-        stream = os.popen('reg query "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Google Chrome" /v DisplayVersion')
-        output = stream.read()
-        version_match = re.search(r'DisplayVersion\s+REG_SZ\s+(\d+)', output)
-        if version_match:
-            return int(version_match.group(1))
-    except:
-        pass
-    return None
-
-def get_all_studentsite_news():
-    options = uc.ChromeOptions()
+def _build_driver():
+    options = Options()
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    
-    local_version = get_chrome_version_local()
-    
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--window-size=1366,768')
+    options.add_argument(
+        'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/124.0.0.0 Safari/537.36'
+    )
+
     if os.getenv("GITHUB_ACTIONS") == "true":
         options.add_argument('--headless=new')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--disable-setuid-sandbox')
-        
-        chrome_env_path = os.getenv("CHROME_BIN")
-        if chrome_env_path and os.path.exists(chrome_env_path):
-            options.binary_location = chrome_env_path
-        else:
-            system_path = shutil.which("google-chrome") or shutil.which("chrome")
-            if system_path:
-                options.binary_location = system_path
-    else:
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        clean_profile = os.path.join(current_dir, "data", "chrome_clean_human_profile")
-        options.add_argument(f'--user-data-dir={clean_profile}')
-    
+
+    chrome_bin = os.getenv("CHROME_BIN")
+    if chrome_bin and os.path.exists(chrome_bin):
+        options.binary_location = chrome_bin
+
+    return webdriver.Chrome(options=options)
+
+def get_all_studentsite_news():
     driver = None
     news_list = []
     try:
-        print(f"[STUDENTSITE] Memulai browser (Version Main: {local_version if local_version else 'Auto/Cloud'})...")
-        driver = uc.Chrome(options=options, version_main=local_version)
-        driver.set_window_size(1366, 768)
-        
-        print("[STUDENTSITE] Warmup session...")
-        driver.get("https://www.google.com")
-        time.sleep(5)
-        
-        print("[STUDENTSITE] Navigasi ke portal Studentsite...")
+        print("[STUDENTSITE] Memulai browser...")
+        driver = _build_driver()
+
         driver.get("https://studentsite.gunadarma.ac.id/index.php/site/news")
-        
-        print("[STUDENTSITE] Menunggu bypass Turnstile (25 detik)...")
-        time.sleep(25)
-        
+        print("[STUDENTSITE] Menunggu halaman render (25s)...")
+
+        try:
+            WebDriverWait(driver, 35).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.content-box"))
+            )
+        except Exception:
+            time.sleep(25)
+
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         boxes = soup.find_all('div', class_='content-box')
-        print(f"[STUDENTSITE] Artikel ditemukan di web: {len(boxes)}")
-        
-        if len(boxes) == 0:
-            return []
+        print(f"[STUDENTSITE] Artikel ditemukan: {len(boxes)}")
 
-        for box in boxes:
+        for box in boxes[:10]:
             h3 = box.find('h3', class_='content-box-header')
             if h3 and h3.find('a'):
                 a = h3.find('a')
@@ -76,16 +60,16 @@ def get_all_studentsite_news():
                 date_div = box.find('div', class_='font-gray')
                 date = date_div.get_text(strip=True).split("pada")[-1].strip() if date_div else "N/A"
                 news_list.append({"title": title, "link": link, "date": date})
-        
-        return news_list
-        
+
+        print(f"[STUDENTSITE] Total berita diambil: {len(news_list)}")
+        return news_list[::-1]
+
     except Exception as e:
-        print(f"[STUDENTSITE Error] Scraper crash: {e}")
+        print(f"[STUDENTSITE Error] {e}")
         return []
     finally:
         if driver:
             try:
-                driver.close()
                 driver.quit()
-            except:
+            except Exception:
                 pass

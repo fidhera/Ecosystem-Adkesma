@@ -1,0 +1,402 @@
+Oke, kita fokus bikin semuanya jalan di GitHub Actions dulu. BAAK kita skip sementara karena Cloudflare-nya tidak bisa ditembus secara reliable — Lepkom dan Studentsite jalan dulu.
+Berikut kode lengkap yang sudah disesuaikan:
+
+FILE 1: requirements.txt
+txtselenium
+webdriver-manager
+beautifulsoup4
+requests
+python-dotenv
+setuptools
+
+FILE 2: scrapers/baak.py
+python# BAAK dinonaktifkan sementara karena Cloudflare Turnstile memblokir semua akses otomatis.
+# Fungsi ini mengembalikan list kosong agar program tidak crash.
+
+def get_all_baak_news():
+    print("[BAAK] Portal dilewati — Cloudflare Turnstile aktif, tidak bisa diakses otomatis.")
+    return []
+
+FILE 3: scrapers/lepkom.py
+pythonfrom selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from webdriver_manager.chrome import ChromeDriverManager
+from bs4 import BeautifulSoup
+import time
+import os
+
+def _build_driver():
+    options = Options()
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--window-size=1366,768')
+    options.add_argument(
+        'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/124.0.0.0 Safari/537.36'
+    )
+
+    # Headless hanya di cloud
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        options.add_argument('--headless=new')
+
+    # Deteksi binary Chrome di GitHub Actions
+    chrome_bin = os.getenv("CHROME_BIN")
+    if chrome_bin and os.path.exists(chrome_bin):
+        options.binary_location = chrome_bin
+
+    service = Service(ChromeDriverManager().install())
+    return webdriver.Chrome(service=service, options=options)
+
+def get_all_lepkom_news():
+    driver = None
+    news_list = []
+    try:
+        print("[LEPKOM] Memulai browser...")
+        driver = _build_driver()
+
+        driver.get("https://vm.lepkom.gunadarma.ac.id/pengumuman")
+        print("[LEPKOM] Menunggu halaman render (15s)...")
+
+        try:
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.blog-post"))
+            )
+        except Exception:
+            time.sleep(15)
+
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        articles = soup.find_all('div', class_='blog-post')
+        print(f"[LEPKOM] Artikel ditemukan: {len(articles)}")
+
+        for article in articles[:5]:
+            info = article.find('div', class_='ttr-post-info')
+            if info and info.find('h5'):
+                a = info.find('h5').find('a')
+                if not a:
+                    continue
+                media_post = info.find('ul', class_='media-post')
+                date_li = media_post.find('li') if media_post else None
+                news_list.append({
+                    "title": a.get_text(strip=True),
+                    "link": a.get('href', ''),
+                    "date": date_li.get_text(strip=True) if date_li else "N/A"
+                })
+
+        print(f"[LEPKOM] Total berita diambil: {len(news_list)}")
+        return news_list[::-1]
+
+    except Exception as e:
+        print(f"[LEPKOM Error] {e}")
+        return []
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+FILE 4: scrapers/studentsite.py
+pythonfrom selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from webdriver_manager.chrome import ChromeDriverManager
+from bs4 import BeautifulSoup
+import time
+import os
+
+def _build_driver():
+    options = Options()
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--window-size=1366,768')
+    options.add_argument(
+        'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/124.0.0.0 Safari/537.36'
+    )
+
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        options.add_argument('--headless=new')
+
+    chrome_bin = os.getenv("CHROME_BIN")
+    if chrome_bin and os.path.exists(chrome_bin):
+        options.binary_location = chrome_bin
+
+    service = Service(ChromeDriverManager().install())
+    return webdriver.Chrome(service=service, options=options)
+
+def get_all_studentsite_news():
+    driver = None
+    news_list = []
+    try:
+        print("[STUDENTSITE] Memulai browser...")
+        driver = _build_driver()
+
+        driver.get("https://studentsite.gunadarma.ac.id/index.php/site/news")
+        print("[STUDENTSITE] Menunggu halaman render (25s)...")
+
+        try:
+            WebDriverWait(driver, 35).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.content-box"))
+            )
+        except Exception:
+            time.sleep(25)
+
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        boxes = soup.find_all('div', class_='content-box')
+        print(f"[STUDENTSITE] Artikel ditemukan: {len(boxes)}")
+
+        for box in boxes[:10]:
+            h3 = box.find('h3', class_='content-box-header')
+            if h3 and h3.find('a'):
+                a = h3.find('a')
+                title = a.get_text(strip=True).replace("[TERBARU]", "").strip()
+                href = a.get('href', '')
+                link = href if href.startswith('http') else f"https://studentsite.gunadarma.ac.id{href}"
+                date_div = box.find('div', class_='font-gray')
+                date = date_div.get_text(strip=True).split("pada")[-1].strip() if date_div else "N/A"
+                news_list.append({"title": title, "link": link, "date": date})
+
+        print(f"[STUDENTSITE] Total berita diambil: {len(news_list)}")
+        return news_list[::-1]
+
+    except Exception as e:
+        print(f"[STUDENTSITE Error] {e}")
+        return []
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+FILE 5: main.py
+pythonimport os
+import json
+import requests
+import time
+import warnings
+import sys
+from dotenv import load_dotenv
+from scrapers.baak import get_all_baak_news
+from scrapers.lepkom import get_all_lepkom_news
+from scrapers.studentsite import get_all_studentsite_news
+
+warnings.filterwarnings("ignore", category=ResourceWarning)
+
+if os.path.exists(".env"):
+    load_dotenv()
+
+DATA_FILE = "data/last_updates.json"
+
+def load_history():
+    default_history = {
+        "baak_history": [],
+        "lepkom_history": [],
+        "studentsite_history": []
+    }
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r") as f:
+                content = f.read()
+            if not content.strip():
+                return default_history
+            data = json.loads(content)
+            for key in default_history:
+                if key not in data:
+                    data[key] = []
+            return data
+        except Exception as e:
+            print(f"[!] Error load history: {e}")
+            return default_history
+    return default_history
+
+def save_history(history):
+    if not os.path.exists('data'):
+        os.makedirs('data')
+    for key in history:
+        history[key] = history[key][-50:]
+    with open(DATA_FILE, "w") as f:
+        json.dump(history, f, indent=4)
+
+def send_to_discord(webhook_url, news, source_name):
+    display_name = f"ECA Monitor - {source_name}"
+    print(f"[+] [{source_name}] Mengirim: {news['title']}")
+
+    if not webhook_url or not webhook_url.startswith("http"):
+        print(f"[!] Webhook {source_name} tidak valid.")
+        return None
+
+    colors = {"BAAK": 3447003, "LEPKOM": 3066993, "STUDENTSITE": 15105570}
+    payload = {
+        "username": display_name,
+        "embeds": [{
+            "title": news['title'],
+            "url": news['link'],
+            "description": f"📅 **Tanggal:** {news['date']}",
+            "color": colors.get(source_name, 3447003),
+            "footer": {"text": "Ecosystem Adkesma Assistant"}
+        }]
+    }
+    try:
+        res = requests.post(webhook_url, json=payload, timeout=15)
+        print(f"[DEBUG] Discord {source_name}: {res.status_code}")
+        return res.status_code
+    except Exception as e:
+        print(f"[!] Discord Error: {e}")
+        return None
+
+def sync_portal(source_name, news_fetcher, history):
+    print(f"\n--- SINKRONISASI PORTAL {source_name} ---")
+    try:
+        all_news = news_fetcher()
+    except Exception as e:
+        print(f"[!] Gagal menarik data {source_name}: {e}")
+        return history
+
+    if not all_news:
+        print(f"[!] Tidak ada berita untuk {source_name}, skip.")
+        return history
+
+    webhook_url = os.getenv(f"{source_name.upper()}_WEBHOOK")
+    if not webhook_url:
+        print(f"[!] Webhook {source_name}_WEBHOOK tidak ditemukan.")
+        return history
+
+    history_key = f"{source_name.lower()}_history"
+    if history_key not in history:
+        history[history_key] = []
+
+    sent_count = 0
+    for news in all_news:
+        if news['title'] not in history[history_key]:
+            status = send_to_discord(webhook_url, news, source_name)
+            if status in [200, 204]:
+                history[history_key].append(news['title'])
+                sent_count += 1
+                time.sleep(2)
+
+    print(f"--- {source_name} SELESAI: {sent_count} berita terkirim ---")
+    return history
+
+def run_logic():
+    history = load_history()
+    portals = [
+        ("BAAK", get_all_baak_news),
+        ("LEPKOM", get_all_lepkom_news),
+        ("STUDENTSITE", get_all_studentsite_news),
+    ]
+    for name, fetcher in portals:
+        try:
+            history = sync_portal(name, fetcher, history)
+        except Exception as e:
+            print(f"[!] Portal {name} gagal total: {e}")
+
+    save_history(history)
+    print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
+
+if __name__ == "__main__":
+    print("[SYSTEM] ECA Monitor Starting...")
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        print("[ENV] GitHub Actions terdeteksi. Satu siklus eksekusi.")
+        run_logic()
+        sys.exit(0)
+    else:
+        print("[ENV] Mode lokal. Loop per jam.")
+        while True:
+            try:
+                run_logic()
+            except Exception as e:
+                print(f"[CRITICAL] {e}")
+            print("\n[*] Tidur 1 jam...")
+            time.sleep(3600)
+
+FILE 6: .github/workflows/scraper_news.yml
+yamlname: Gunadarma News Scraper
+
+on:
+  schedule:
+    - cron: '0 0,7,13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wget gnupg ca-certificates
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \
+            | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -y
+          sudo apt-get install -y google-chrome-stable
+          echo "CHROME_BIN=$(which google-chrome-stable)" >> $GITHUB_ENV
+          google-chrome-stable --version
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Run Scraper
+        env:
+          BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
+          LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
+          STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
+          GITHUB_ACTIONS: "true"
+        run: python main.py
+
+      - name: Commit Updated History
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git pull --rebase origin main
+          git add data/last_updates.json
+          git diff --cached --quiet || git commit -m "chore: update news history [skip ci]"
+          git push origin main
+
+Langkah push:
+bash# Hapus dulu cache .wdm yang error tadi
+Remove-Item -Recurse -Force "$env:USERPROFILE\.wdm"
+
+git add .
+git commit -m "refactor: migrate to selenium + webdriver-manager, skip BAAK"
+git push origin main
+Setelah push, buka tab Actions di GitHub → klik Run workflow manual → pantau log tiap step. Share hasilnya kalau ada error.
+
+Ringkasan perubahan:
+
+undetected-chromedriver dihapus total dari semua scraper, diganti selenium + webdriver-manager yang stabil di GitHub Actions
+BAAK dikembalikan kosong secara eksplisit dengan pesan jelas, tidak crash program
+Chrome di-install via apt-get langsung di workflow dan path-nya di-export ke GITHUB_ENV agar CHROME_BIN terbaca oleh scraper
+WebDriverWait ditambahkan sebagai pengganti time.sleep fixed — lebih cepat kalau halaman sudah load, fallback ke sleep kalau timeout
+GITHUB_ACTIONS: "true" di-set eksplisit di step env workflow untuk memastikan deteksi environment terbaca benar

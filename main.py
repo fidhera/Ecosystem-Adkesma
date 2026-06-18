@@ -42,23 +42,19 @@ def save_history(history):
     if not os.path.exists('data'):
         os.makedirs('data')
     for key in history:
-        history[key] = history[key][-50:] # Simpan hingga 50 riwayat terakhir
+        history[key] = history[key][-50:]
     with open(DATA_FILE, "w") as f:
         json.dump(history, f, indent=4)
 
 def send_to_discord(webhook_url, news, source_name):
     display_name = f"ECA Monitor - {source_name}"
-    print(f"[+] [{source_name}] Mencoba mengirim ke Discord: {news['title']}")
-    
+    print(f"[+] [{source_name}] Mengirim: {news['title']}")
+
     if not webhook_url or not webhook_url.startswith("http"):
-        print(f"[!] [ERROR CRITICAL] URL Webhook untuk {source_name} tidak valid atau kosong string!")
+        print(f"[!] Webhook {source_name} tidak valid.")
         return None
 
-    colors = {
-        "BAAK": 3447003,
-        "LEPKOM": 3066993,
-        "STUDENTSITE": 15105570
-    }
+    colors = {"BAAK": 3447003, "LEPKOM": 3066993, "STUDENTSITE": 15105570}
     payload = {
         "username": display_name,
         "embeds": [{
@@ -66,53 +62,48 @@ def send_to_discord(webhook_url, news, source_name):
             "url": news['link'],
             "description": f"📅 **Tanggal:** {news['date']}",
             "color": colors.get(source_name, 3447003),
-            "footer": {
-                "text": "Ecosystem Adkesma Assistant"
-            }
+            "footer": {"text": "Ecosystem Adkesma Assistant"}
         }]
     }
     try:
         res = requests.post(webhook_url, json=payload, timeout=15)
-        print(f"[DEBUG] Respons API Discord untuk {source_name}: Status Code {res.status_code} | Response: {res.text}")
+        print(f"[DEBUG] Discord {source_name}: {res.status_code}")
         return res.status_code
     except Exception as e:
-        print(f"[!] Discord Error saat POST data: {e}")
+        print(f"[!] Discord Error: {e}")
         return None
 
 def sync_portal(source_name, news_fetcher, history):
     print(f"\n--- SINKRONISASI PORTAL {source_name} ---")
     try:
         all_news = news_fetcher()
-        if not all_news:
-            print(f"[!] Tidak ada berita ditemukan atau akses diblokir untuk {source_name}")
-            return history
     except Exception as e:
         print(f"[!] Gagal menarik data {source_name}: {e}")
         return history
 
-    webhook_key = f"{source_name.upper()}_WEBHOOK"
-    webhook_url = os.getenv(webhook_key)
+    if not all_news:
+        print(f"[!] Tidak ada berita untuk {source_name}, skip.")
+        return history
+
+    webhook_url = os.getenv(f"{source_name.upper()}_WEBHOOK")
     if not webhook_url:
-        print(f"[!] Webhook {webhook_key} tidak ditemukan di Environment System")
+        print(f"[!] Webhook {source_name}_WEBHOOK tidak ditemukan.")
         return history
 
     history_key = f"{source_name.lower()}_history"
     if history_key not in history:
         history[history_key] = []
 
-    latest_news = all_news[0]
-    
-    if latest_news['title'] not in history[history_key]:
-        status = send_to_discord(webhook_url, latest_news, source_name)
-        if status in [200, 204]:
-            print(f"[+] [{source_name}] Berhasil terkirim. Menyimpan ke database JSON.")
-            history[history_key].append(latest_news['title'])
-        else:
-            print(f"[!] [{source_name}] Gagal terkirim ke Discord. Status respons: {status}")
-    else:
-        print(f"[-] Berita terbaru '{latest_news['title']}' sudah pernah dikirim. Skip!")
+    sent_count = 0
+    for news in all_news:
+        if news['title'] not in history[history_key]:
+            status = send_to_discord(webhook_url, news, source_name)
+            if status in [200, 204]:
+                history[history_key].append(news['title'])
+                sent_count += 1
+                time.sleep(2)
 
-    print(f"--- {source_name} SIKLUS SELESAI ---")
+    print(f"--- {source_name} SELESAI: {sent_count} berita terkirim ---")
     return history
 
 def run_logic():
@@ -125,27 +116,24 @@ def run_logic():
     for name, fetcher in portals:
         try:
             history = sync_portal(name, fetcher, history)
-        except Exception as loop_err:
-            print(f"[!] Gagal memproses portal {name}: {loop_err}")
-            continue
-            
+        except Exception as e:
+            print(f"[!] Portal {name} gagal total: {e}")
+
     save_history(history)
     print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
 
 if __name__ == "__main__":
-    print("[SYSTEM] ECA Monitor Production Engine Starting...")
-    
-    # Deteksi adaptif: Jika berjalan di GitHub Actions atau di dalam Kontainer Docker Railway
-    if os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("RAILWAY_ENVIRONMENT") is not None:
-        print("[ENV] Mode Cloud Detektif Terbaca. Menjalankan Satu Siklus Eksekusi Singkat.")
+    print("[SYSTEM] ECA Monitor Starting...")
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        print("[ENV] GitHub Actions terdeteksi. Satu siklus eksekusi.")
         run_logic()
         sys.exit(0)
     else:
-        print("[ENV] Mode Lokal Terbaca. Menjalankan Siklus Daemon Per Jam.")
+        print("[ENV] Mode lokal. Loop per jam.")
         while True:
             try:
                 run_logic()
             except Exception as e:
-                print(f"[CRITICAL ERROR] {e}")
-            print("\n[*] Sinkronisasi selesai. Tidur 1 jam...")
+                print(f"[CRITICAL] {e}")
+            print("\n[*] Tidur 1 jam...")
             time.sleep(3600)

@@ -2,46 +2,58 @@ name: Gunadarma News Scraper
 
 on:
   schedule:
-    - cron: '0 0,7,13 * * *' # Berjalan otomatis jam 7 pagi, 2 siang, dan 8 malam WIB
-  workflow_dispatch: # Mengaktifkan tombol "Run workflow" manual di web GitHub
+    - cron: '0 0,7,13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-    - name: Install Google Chrome Stable
-      uses: browser-actions/setup-chrome@v1
-      id: setup-chrome
-      with:
-        chrome-version: stable
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wget gnupg ca-certificates
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \
+            | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -y
+          sudo apt-get install -y google-chrome-stable
+          echo "CHROME_BIN=$(which google-chrome-stable)" >> $GITHUB_ENV
+          google-chrome-stable --version
 
-    - name: Cache Pip Dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
 
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip setuptools wheel
-        pip install -r requirements.txt
+      - name: Run Scraper
+        env:
+          BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
+          LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
+          STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
+          GITHUB_ACTIONS: "true"
+        run: python main.py
 
-    - name: Run Scraper Engine
-      env:
-        BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
-        LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
-        STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
-        CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
-      run: |
-        python main.py
+      - name: Commit Updated History
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git pull --rebase origin main
+          git add data/last_updates.json
+          git diff --cached --quiet || git commit -m "chore: update news history [skip ci]"
+          git push origin main

@@ -1,21 +1,72 @@
-Halo, saya mau memperbaiki total bot scrapper berita Gunadarma (ADKESMA) ke Discord Webhook saya. Bot ini mengalami beberapa error:
-1. Sering dapet Exit Code 127 di GitHub Actions karena biner Chrome/ChromeDriver tidak ditemukan.
-2. Berita Lepkom sering terkirim berulang (spamming) karena masalah file state JSON yang ephemeral (selalu reset ke kosong).
-3. Portal BAAK dan Studentsite sering gagal ditarik karena proteksi Cloudflare di server cloud.
+Halo, saya sedang mengembangkan bot scraper berita Gunadarma (ADKESMA) otomatis yang mengirimkan notifikasi ke Discord Webhook menggunakan GitHub Actions. 
 
-Tolong perbaiki dan buatkan ulang file kodenya secara LENGKAP (FULL CODE) dari awal sampai akhir untuk file-file yang bermasalah. Hindari puji-pujian atau basa-basi yang berlebihan, cukup jelaskan poin perbaikannya saja secara singkat dan padat setelah memberikan kode.
+Saat ini, status alur kerja (workflow) di GitHub Actions selalu menunjukkan centang hijau "Succeeded" (Sukses murni), tetapi tidak ada satu pun notifikasi berita yang berhasil dikirim atau jebol masuk ke dalam channel Discord saya. Ketika saya periksa, log pada langkah instalasi dependensi pip berjalan normal, namun ada anomali atau kegagalan senyap (silent crash) di bagian mesin scraper utama (Selenium/undetected-chromedriver) saat berjalan di atas lingkungan headless virtual cloud Ubuntu.
 
-Ketentuan Arsitektur Perbaikan:
-- Gunakan Python 3.12-slim/3.13 dengan dependensi 'setuptools' terinstal di requirements/workflow agar 'distutils' tidak error 'ModuleNotFoundError'.
-- Di bagian scraper browser, gunakan argumen headless cloud mode yang ringan (--headless=new, --no-sandbox, --disable-dev-shm-usage, --disable-gpu, --single-process).
-- Tambahkan pengereman 'time.sleep' yang cukup (sekitar 25 detik) setelah driver.get() khusus portal BAAK dan Studentsite agar lolos Cloudflare.
-- Bungkus eksekusi tiap portal dengan blok 'try-except' mandiri di main.py agar jika satu portal eror/blocked, portal lainnya tetap jalan dan tidak mematikan seluruh program.
-- Untuk solusi spamming berita, buatkan opsi mekanisme Git Auto-Commit di file YAML GitHub Actions agar file 'data/last_updates.json' ter-update otomatis kembali ke repo setelah run berhasil.
+Tolong bantu saya melakukan audit total dan perbaikan kodingan agar bot ini bisa berjalan sempurna di GitHub Actions tanpa mengalami crash atau blocking dari Cloudflare.
 
-Berikut adalah file kode saya saat ini yang ingin diperbaiki:
+Ketentuan Perbaikan Kode:
+1. Pastikan inisialisasi 'undetected-chromedriver' dikonfigurasi secara adaptif untuk lingkungan headless cloud GitHub Actions (menggunakan argumen stabilitas seperti --no-sandbox, --disable-dev-shm-usage, --disable-gpu, --disable-setuid-sandbox) tanpa merusak atau membuat eror ketika dicoba di laptop lokal (Windows).
+2. Deteksi jalur biner Google Chrome secara dinamis di server cloud menggunakan interaksi sistem agar tidak memicu Exit Code eror salah versi biner.
+3. Pastikan penanganan enkripsi Cloudflare Turnstile pada portal BAAK dan Studentsite dijaga dengan jeda waktu tunggu (time.sleep) yang presisi agar struktur HTML terdokumentasi sempurna oleh BeautifulSoup.
+4. Jangan potong kode! Berikan file perbaikan kodingan secara LENGKAP dan UTUH (FULL CODE) dari awal sampai akhir baris untuk setiap file yang mengalami revisi atau perubahan arsitektur. 
+5. Hindari puji-pujian atau basa-basi yang berlebihan, cukup jelaskan poin perbaikannya saja secara singkat, padat, dan jelas di bagian akhir.
+
+Berikut adalah seluruh berkas kode proyek saya saat ini yang ingin diaudit:
 
 =========================================
-1. FILE: main.py
+1. FILE: .github/workflows/scraper_news.yml
+=========================================
+name: Gunadarma News Scraper
+
+on:
+  schedule:
+    - cron: '0 0,7,13 * * *' # Berjalan otomatis jam 7 pagi, 2 siang, dan 8 malam WIB
+  workflow_dispatch: # Mengaktifkan tombol "Run workflow" manual di web GitHub
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Google Chrome Stable
+      uses: browser-actions/setup-chrome@v1
+      id: setup-chrome
+      with:
+        chrome-version: stable
+
+    - name: Cache Pip Dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        pip install -r requirements.txt
+
+    - name: Run Scraper Engine
+      env:
+        BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
+        LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
+        STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
+        CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+      run: |
+        python main.py
+
+
+=========================================
+2. FILE: main.py
 =========================================
 import os
 import json
@@ -61,13 +112,18 @@ def save_history(history):
     if not os.path.exists('data'):
         os.makedirs('data')
     for key in history:
-        history[key] = history[key][-20:]
+        history[key] = history[key][-50:] # Simpan hingga 50 riwayat terakhir
     with open(DATA_FILE, "w") as f:
         json.dump(history, f, indent=4)
 
 def send_to_discord(webhook_url, news, source_name):
     display_name = f"ECA Monitor - {source_name}"
-    print(f"[+] [{source_name}] Mengirim: {news['title']}")
+    print(f"[+] [{source_name}] Mencoba mengirim ke Discord: {news['title']}")
+    
+    if not webhook_url or not webhook_url.startswith("http"):
+        print(f"[!] [ERROR CRITICAL] URL Webhook untuk {source_name} tidak valid atau kosong string!")
+        return None
+
     colors = {
         "BAAK": 3447003,
         "LEPKOM": 3066993,
@@ -87,9 +143,10 @@ def send_to_discord(webhook_url, news, source_name):
     }
     try:
         res = requests.post(webhook_url, json=payload, timeout=15)
+        print(f"[DEBUG] Respons API Discord untuk {source_name}: Status Code {res.status_code} | Response: {res.text}")
         return res.status_code
     except Exception as e:
-        print(f"[!] Discord Error: {e}")
+        print(f"[!] Discord Error saat POST data: {e}")
         return None
 
 def sync_portal(source_name, news_fetcher, history):
@@ -97,7 +154,7 @@ def sync_portal(source_name, news_fetcher, history):
     try:
         all_news = news_fetcher()
         if not all_news:
-            print(f"[!] Tidak ada berita ditemukan untuk {source_name}")
+            print(f"[!] Tidak ada berita ditemukan atau akses diblokir untuk {source_name}")
             return history
     except Exception as e:
         print(f"[!] Gagal menarik data {source_name}: {e}")
@@ -106,23 +163,26 @@ def sync_portal(source_name, news_fetcher, history):
     webhook_key = f"{source_name.upper()}_WEBHOOK"
     webhook_url = os.getenv(webhook_key)
     if not webhook_url:
-        print(f"[!] Webhook {webhook_key} tidak ditemukan")
+        print(f"[!] Webhook {webhook_key} tidak ditemukan di Environment System")
         return history
 
     history_key = f"{source_name.lower()}_history"
     if history_key not in history:
         history[history_key] = []
 
-    sent_count = 0
-    for news in all_news:
-        if news['title'] not in history[history_key]:
-            status = send_to_discord(webhook_url, news, source_name)
-            if status in [200, 204]:
-                history[history_key].append(news['title'])
-                sent_count += 1
-                time.sleep(2)
+    latest_news = all_news[0]
+    
+    if latest_news['title'] not in history[history_key]:
+        status = send_to_discord(webhook_url, latest_news, source_name)
+        if status in [200, 204]:
+            print(f"[+] [{source_name}] Berhasil terkirim. Menyimpan ke database JSON.")
+            history[history_key].append(latest_news['title'])
+        else:
+            print(f"[!] [{source_name}] Gagal terkirim ke Discord. Status respons: {status}")
+    else:
+        print(f"[-] Berita terbaru '{latest_news['title']}' sudah pernah dikirim. Skip!")
 
-    print(f"--- {source_name} SELESAI: {sent_count} BERITA TERKIRIM ---")
+    print(f"--- {source_name} SIKLUS SELESAI ---")
     return history
 
 def run_logic():
@@ -133,112 +193,208 @@ def run_logic():
         ("STUDENTSITE", get_all_studentsite_news),
     ]
     for name, fetcher in portals:
-        history = sync_portal(name, fetcher, history)
+        try:
+            history = sync_portal(name, fetcher, history)
+        except Exception as loop_err:
+            print(f"[!] Gagal memproses portal {name}: {loop_err}")
+            continue
+            
     save_history(history)
     print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
 
 if __name__ == "__main__":
-    print("[SYSTEM] ECA Monitor Cloud Version Starting...")
-    while True:
-        try:
-            run_logic()
-        except Exception as e:
-            print(f"[CRITICAL ERROR] {e}")
-            
-        print("\n[*] Sinkronisasi selesai. Tidur 1 jam...")
-        time.sleep(3600)
+    print("[SYSTEM] ECA Monitor Production Engine Starting...")
+    
+    # Deteksi adaptif: Jika berjalan di GitHub Actions atau di dalam Kontainer Docker Railway
+    if os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("RAILWAY_ENVIRONMENT") is not None:
+        print("[ENV] Mode Cloud Detektif Terbaca. Menjalankan Satu Siklus Eksekusi Singkat.")
+        run_logic()
+        sys.exit(0)
+    else:
+        print("[ENV] Mode Lokal Terbaca. Menjalankan Siklus Daemon Per Jam.")
+        while True:
+            try:
+                run_logic()
+            except Exception as e:
+                print(f"[CRITICAL ERROR] {e}")
+            print("\n[*] Sinkronisasi selesai. Tidur 1 jam...")
+            time.sleep(3600)
+
 
 =========================================
-2. FILE: scrapers/baak.py
+3. FILE: scrapers/baak.py
 =========================================
 import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
-import time, os
+import time
+import os
+import re
+import shutil
+
+def get_chrome_version_local():
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        return None
+    try:
+        stream = os.popen('reg query "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Google Chrome" /v DisplayVersion')
+        output = stream.read()
+        version_match = re.search(r'DisplayVersion\s+REG_SZ\s+(\d+)', output)
+        if version_match:
+            return int(version_match.group(1))
+    except:
+        pass
+    return None
 
 def get_all_baak_news():
-    is_railway = os.getenv('RAILWAY_STATIC_URL') is not None
     options = uc.ChromeOptions()
-    
-    # Argumen wajib buat server cloud agar tidak macet di 'Starting Container'
-    options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--single-process')
-    options.binary_location = "/usr/bin/google-chrome" # Lokasi Chrome di Docker lo
+    
+    local_version = get_chrome_version_local()
+    
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        options.add_argument('--headless=new')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--disable-setuid-sandbox')
+        
+        # Deteksi dinamis jalur biner Chrome yang diinstal oleh GitHub Actions
+        chrome_env_path = os.getenv("CHROME_BIN")
+        if chrome_env_path and os.path.exists(chrome_env_path):
+            options.binary_location = chrome_env_path
+        else:
+            system_path = shutil.which("google-chrome") or shutil.which("chrome")
+            if system_path:
+                options.binary_location = system_path
+    else:
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        clean_profile = os.path.join(current_dir, "data", "chrome_clean_human_profile")
+        options.add_argument(f'--user-data-dir={clean_profile}')
     
     driver = None
     news_list = []
     try:
-        print("[BAAK] Memulai browser...")
-        driver = uc.Chrome(options=options)
+        print(f"[BAAK] Membuka browser (Version Main: {local_version if local_version else 'Auto/Cloud'})...")
+        driver = uc.Chrome(options=options, version_main=local_version)
+        driver.set_window_size(1366, 768)
+        
+        print("[BAAK] Warmup session...")
+        driver.get("https://www.google.com")
+        time.sleep(5)
+        
+        print("[BAAK] Navigasi ke portal BAAK...")
         driver.get("https://baak.gunadarma.ac.id/beritabaak")
         
-        print("[BAAK] Menunggu Cloudflare (15s)...")
-        time.sleep(15) 
+        print("[BAAK] Menunggu validasi Turnstile (25 detik)...")
+        time.sleep(25)
         
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         articles = soup.find_all('article', class_='post-news')
+        print(f"[BAAK] Artikel ditemukan di web: {len(articles)}")
         
+        if len(articles) == 0:
+            return []
+
         for article in articles:
             h6 = article.find('h6')
             if h6 and h6.find('a'):
-                a = h6.find('a')
-                title = a.get_text(strip=True)
-                href = a.get('href', '')
-                link = href if href.startswith('http') else f"https://baak.gunadarma.ac.id{href}"
+                a_tag = h6.find('a')
+                title = a_tag.get_text(strip=True)
+                link = a_tag.get('href', '')
+                link = link if link.startswith('http') else f"https://baak.gunadarma.ac.id{link}"
                 meta = article.find('div', class_='post-news-meta')
                 date = meta.get_text(strip=True) if meta else "N/A"
                 news_list.append({"title": title, "link": link, "date": date})
         
-        print(f"[BAAK] Berhasil menarik {len(news_list)} berita.")
-        return news_list[::-1]
+        return news_list
+
     except Exception as e:
-        print(f"[BAAK Error] {e}")
+        print(f"[BAAK Error] Scraper crash: {e}")
         return []
     finally:
         if driver:
             try:
+                driver.close()
                 driver.quit()
             except:
                 pass
 
+
 =========================================
-3. FILE: scrapers/lepkom.py
+4. FILE: scrapers/lepkom.py
 =========================================
 import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
-import time, os
+import time
+import os
+import re
+import shutil
+
+def get_chrome_version_local():
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        return None
+    try:
+        stream = os.popen('reg query "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Google Chrome" /v DisplayVersion')
+        output = stream.read()
+        version_match = re.search(r'DisplayVersion\s+REG_SZ\s+(\d+)', output)
+        if version_match:
+            return int(version_match.group(1))
+    except:
+        pass
+    return None
 
 def get_all_lepkom_news():
-    is_railway = os.getenv('RAILWAY_STATIC_URL') is not None
     options = uc.ChromeOptions()
-    
-    # Argumen wajib buat server cloud
-    options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--single-process')
-    options.binary_location = "/usr/bin/google-chrome"
+    
+    local_version = get_chrome_version_local()
+    
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        options.add_argument('--headless=new')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--disable-setuid-sandbox')
+        
+        chrome_env_path = os.getenv("CHROME_BIN")
+        if chrome_env_path and os.path.exists(chrome_env_path):
+            options.binary_location = chrome_env_path
+        else:
+            system_path = shutil.which("google-chrome") or shutil.which("chrome")
+            if system_path:
+                options.binary_location = system_path
+    else:
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        clean_profile = os.path.join(current_dir, "data", "chrome_clean_human_profile")
+        options.add_argument(f'--user-data-dir={clean_profile}')
     
     driver = None
     news_list = []
     try:
-        print("[LEPKOM] Memulai browser...")
-        driver = uc.Chrome(options=options)
+        print(f"[LEPKOM] Memulai browser (Version Main: {local_version if local_version else 'Auto/Cloud'})...")
+        driver = uc.Chrome(options=options, version_main=local_version)
+        driver.set_window_size(1366, 768)
+        
+        print("[LEPKOM] Warmup session...")
+        driver.get("https://www.google.com")
+        time.sleep(5)
+        
+        print("[LEPKOM] Navigasi ke portal Lepkom...")
         driver.get("https://vm.lepkom.gunadarma.ac.id/pengumuman")
         
-        print("[LEPKOM] Menunggu halaman (15s)...")
+        print("[LEPKOM] Menunggu halaman render (15 detik)...")
         time.sleep(15)
         
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         articles = soup.find_all('div', class_='blog-post')
+        print(f"[LEPKOM] Artikel ditemukan di web: {len(articles)}")
         
-        for article in articles[:5]:
+        if len(articles) == 0:
+            return []
+
+        for article in articles:
             info = article.find('div', class_='ttr-post-info')
             if info and info.find('h5'):
                 a = info.find('h5').find('a')
+                if not a:
+                    continue
                 media_post = info.find('ul', class_='media-post')
                 date_li = media_post.find('li') if media_post else None
                 news_list.append({
@@ -247,51 +403,93 @@ def get_all_lepkom_news():
                     "date": date_li.get_text(strip=True) if date_li else "N/A"
                 })
         
-        print(f"[LEPKOM] Berhasil menarik {len(news_list)} berita.")
-        return news_list[::-1]
+        return news_list
+        
     except Exception as e:
-        print(f"[LEPKOM Error] {e}")
+        print(f"[LEPKOM Error] Scraper crash: {e}")
         return []
     finally:
         if driver:
             try:
+                driver.close()
                 driver.quit()
             except:
                 pass
 
+
+
 =========================================
-4. FILE: scrapers/studentsite.py
+5. FILE: scrapers/studentsite.py
 =========================================
 import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
-import time, os
+import time
+import os
+import re
+import shutil
+
+def get_chrome_version_local():
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        return None
+    try:
+        stream = os.popen('reg query "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Google Chrome" /v DisplayVersion')
+        output = stream.read()
+        version_match = re.search(r'DisplayVersion\s+REG_SZ\s+(\d+)', output)
+        if version_match:
+            return int(version_match.group(1))
+    except:
+        pass
+    return None
 
 def get_all_studentsite_news():
-    is_railway = os.getenv('RAILWAY_STATIC_URL') is not None
     options = uc.ChromeOptions()
-    
-    # Argumen wajib buat server cloud
-    options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--single-process')
-    options.binary_location = "/usr/bin/google-chrome"
+    
+    local_version = get_chrome_version_local()
+    
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        options.add_argument('--headless=new')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--disable-setuid-sandbox')
+        
+        chrome_env_path = os.getenv("CHROME_BIN")
+        if chrome_env_path and os.path.exists(chrome_env_path):
+            options.binary_location = chrome_env_path
+        else:
+            system_path = shutil.which("google-chrome") or shutil.which("chrome")
+            if system_path:
+                options.binary_location = system_path
+    else:
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        clean_profile = os.path.join(current_dir, "data", "chrome_clean_human_profile")
+        options.add_argument(f'--user-data-dir={clean_profile}')
     
     driver = None
     news_list = []
     try:
-        print("[STUDENTSITE] Memulai browser...")
-        driver = uc.Chrome(options=options)
+        print(f"[STUDENTSITE] Memulai browser (Version Main: {local_version if local_version else 'Auto/Cloud'})...")
+        driver = uc.Chrome(options=options, version_main=local_version)
+        driver.set_window_size(1366, 768)
+        
+        print("[STUDENTSITE] Warmup session...")
+        driver.get("https://www.google.com")
+        time.sleep(5)
+        
+        print("[STUDENTSITE] Navigasi ke portal Studentsite...")
         driver.get("https://studentsite.gunadarma.ac.id/index.php/site/news")
         
-        print("[STUDENTSITE] Menunggu halaman (15s)...")
-        time.sleep(15)
+        print("[STUDENTSITE] Menunggu bypass Turnstile (25 detik)...")
+        time.sleep(25)
         
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         boxes = soup.find_all('div', class_='content-box')
+        print(f"[STUDENTSITE] Artikel ditemukan di web: {len(boxes)}")
         
-        for box in boxes[:10]:
+        if len(boxes) == 0:
+            return []
+
+        for box in boxes:
             h3 = box.find('h3', class_='content-box-header')
             if h3 and h3.find('a'):
                 a = h3.find('a')
@@ -302,65 +500,26 @@ def get_all_studentsite_news():
                 date = date_div.get_text(strip=True).split("pada")[-1].strip() if date_div else "N/A"
                 news_list.append({"title": title, "link": link, "date": date})
         
-        print(f"[STUDENTSITE] Berhasil menarik {len(news_list)} berita.")
-        return news_list[::-1]
+        return news_list
+        
     except Exception as e:
-        print(f"[STUDENTSITE Error] {e}")
+        print(f"[STUDENTSITE Error] Scraper crash: {e}")
         return []
     finally:
         if driver:
             try:
+                driver.close()
                 driver.quit()
             except:
                 pass
 
 =========================================
-5. FILE: .github/workflows/scraper_news.yml
+6. FILE: requirements.txt
 =========================================
-name: Gunadarma News Scraper
-
-on:
-  schedule:
-    - cron: '0 * * * *'  # OTOMATIS RUN SETIAP 1 JAM
-  workflow_dispatch:      # Tombol Manual
-
-permissions:
-  contents: write
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install Playwright Browsers
-        run: |
-          playwright install chromium
-          playwright install-deps chromium
-
-      - name: Run Scraper
-        env:
-          BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
-          LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
-          STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
-        run: python main.py
-
-      - name: Commit Data Changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add data/last_updates.json
-          git commit -m "Update news history [skip ci]" || echo "No changes to commit"
-          git push origin main
+undetected-chromedriver==3.5.5
+beautifulsoup4==4.12.3
+requests==2.31.0
+python-dotenv==1.0.1
+setuptools==69.5.1
+wheel==0.43.0
+selenium==4.18.1
