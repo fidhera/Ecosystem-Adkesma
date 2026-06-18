@@ -5,7 +5,7 @@ on:
     # Waktu UTC (UTC +7 = WIB). 
     # Jam 00:00 UTC (07:00 WIB), Jam 07:00 UTC (14:00 WIB), Jam 13:00 UTC (20:00 WIB)
     - cron: '0 0,7,13 * * *'
-  workflow_dispatch: # Tambahan opsional: Biar bisa lo klik tombol "Run workflow" manual dari web GitHub
+  workflow_dispatch: # Mengaktifkan tombol jalankan manual dari web GitHub
 
 permissions:
   contents: write
@@ -27,7 +27,6 @@ jobs:
           python-version: '3.12'
 
       - name: Setup Google Chrome
-        # REVISI: Menggunakan action resmi untuk setup Chrome tanpa apt-key add yang sudah deprecated
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
@@ -48,7 +47,8 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git pull --rebase origin main
+          # REVISI: Lakukan git add duluan baru ditarik agar tidak bentrok unstaged changes
           git add data/last_updates.json
+          git pull --rebase origin main
           git diff --cached --quiet || git commit -m "chore: update news history [skip ci]"
           git push origin main
