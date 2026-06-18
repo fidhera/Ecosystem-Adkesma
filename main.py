@@ -48,7 +48,13 @@ def save_history(history):
 
 def send_to_discord(webhook_url, news, source_name):
     display_name = f"ECA Monitor - {source_name}"
-    print(f"[+] [{source_name}] Mengirim: {news['title']}")
+    print(f"[+] [{source_name}] Mencoba mengirim ke Discord: {news['title']}")
+    
+    # Deteksi proteksi jika webhook url kosong atau cacat format
+    if not webhook_url or not webhook_url.startswith("http"):
+        print(f"[!] [ERROR CRITICAL] URL Webhook untuk {source_name} tidak valid atau kosong string!")
+        return None
+
     colors = {
         "BAAK": 3447003,
         "LEPKOM": 3066993,
@@ -68,9 +74,11 @@ def send_to_discord(webhook_url, news, source_name):
     }
     try:
         res = requests.post(webhook_url, json=payload, timeout=15)
+        # SUNTIKAN DEBUG LOG: Paksa server memuntahkan status asli dari API Discord
+        print(f"[DEBUG] Respons API Discord untuk {source_name}: Status Code {res.status_code} | Response: {res.text}")
         return res.status_code
     except Exception as e:
-        print(f"[!] Discord Error: {e}")
+        print(f"[!] Discord Error saat POST data: {e}")
         return None
 
 def sync_portal(source_name, news_fetcher, history):
@@ -87,20 +95,23 @@ def sync_portal(source_name, news_fetcher, history):
     webhook_key = f"{source_name.upper()}_WEBHOOK"
     webhook_url = os.getenv(webhook_key)
     if not webhook_url:
-        print(f"[!] Webhook {webhook_key} tidak ditemukan")
+        print(f"[!] Webhook {webhook_key} tidak ditemukan di Environment System")
         return history
 
     history_key = f"{source_name.lower()}_history"
     if history_key not in history:
         history[history_key] = []
 
-    # REVISI STRATEGI: Hanya ambil 1 berita paling atas/terbaru dari web (Index 0)
+    # Ambil 1 berita paling atas/terbaru dari web (Index 0)
     latest_news = all_news[0]
     
     if latest_news['title'] not in history[history_key]:
         status = send_to_discord(webhook_url, latest_news, source_name)
         if status in [200, 204]:
+            print(f"[+] [{source_name}] Berhasil terkirim. Menyimpan ke database JSON.")
             history[history_key].append(latest_news['title'])
+        else:
+            print(f"[!] [{source_name}] Gagal terkirim ke Discord. Status respons: {status}")
     else:
         print(f"[-] Berita terbaru '{latest_news['title']}' sudah pernah dikirim. Skip!")
 
