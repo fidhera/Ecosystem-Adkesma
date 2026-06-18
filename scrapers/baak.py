@@ -7,7 +7,6 @@ from bs4 import BeautifulSoup
 import time
 import os
 
-
 def _build_driver():
     options = Options()
 
@@ -23,79 +22,90 @@ def _build_driver():
         'Chrome/124.0.0.0 Safari/537.36'
     )
 
+    # === TAMBAHAN ANTI-DETEKSI DARI GPT ===
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+
     if os.getenv("GITHUB_ACTIONS") == "true":
         options.add_argument('--headless=new')
 
     chrome_bin = os.getenv("CHROME_BIN")
-
     if chrome_bin and os.path.exists(chrome_bin):
         options.binary_location = chrome_bin
 
     return webdriver.Chrome(options=options)
-
 
 def get_all_baak_news():
     driver = None
     news_list = []
 
     try:
-
         print("[BAAK] Memulai browser...")
         driver = _build_driver()
 
-        driver.get("https://baak.gunadarma.ac.id/beritabaak")
+        # === SUNTIKAN SCRIPT STEALTH SEBELUM NAVIGASI ===
+        driver.execute_script(
+            """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            })
+            """
+        )
 
+        driver.get("https://baak.gunadarma.ac.id/beritabaak")
         print("[BAAK] Menunggu halaman render...")
 
-        time.sleep(15)
-        print(driver.get_cookies())
+        # === LOOP MONITORING CLOUDFLARE 60 DETIK ===
+        for i in range(60):
+            time.sleep(1)
+            title = driver.title
+            print(f"[BAAK] Waiting CF... {i+1}s | {title}")
+            if "Just a moment" not in title:
+                break
 
+        # Cetak cookie untuk keperluan audit session token
+        print("[BAAK] Cookies didapatkan:", driver.get_cookies())
         print("[BAAK] Title :", driver.title)
         print("[BAAK] URL :", driver.current_url)
 
         html = driver.page_source
         with open("baak_debug.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
+            f.write(html)
         print("[BAAK] Debug HTML berhasil disimpan")
 
-        print(html[:1500])
-
         soup = BeautifulSoup(html, "html.parser")
-
         articles = soup.find_all("article")
-
         print(f"[BAAK] Artikel ditemukan: {len(articles)}")
 
         for article in articles[:1]:
-
             h6 = article.find("h6")
-
             if not h6:
                 continue
 
             a = h6.find("a")
-
             if not a:
                 continue
 
             title = a.get_text(strip=True)
-
             href = a.get("href", "")
+            link = href if href.startswith("http") else f"https://baak.gunadarma.ac.id{href}"
 
-            link = (
-                href
-                if href.startswith("http")
-                else f"https://baak.gunadarma.ac.id{href}"
-            )
+            # Ekstraksi komponen tanggal terbit
+            meta_div = article.find('div', class_='post-news-meta')
+            date = "N/A"
+            if meta_div:
+                spans = meta_div.find_all('span')
+                if len(spans) >= 2:
+                    date = spans[1].get_text(strip=True)
 
             news_list.append({
                 "title": title,
                 "link": link,
-                "date": "N/A"
+                "date": date
             })
 
         print(f"[BAAK] Total berita diambil: {len(news_list)}")
-
         return news_list
 
     except Exception as e:
