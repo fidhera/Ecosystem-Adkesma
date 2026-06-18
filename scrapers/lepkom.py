@@ -50,7 +50,8 @@ def get_all_lepkom_news():
         articles = soup.find_all('div', class_='blog-post')
         print(f"[LEPKOM] Artikel ditemukan: {len(articles)}")
 
-        for article in articles[:5]:
+        # Membatasi slice [:1] hanya untuk mengambil 1 berita terbaru
+        for article in articles[:1]:
             info = article.find('div', class_='ttr-post-info')
             if info and info.find('h5'):
                 a = info.find('h5').find('a')

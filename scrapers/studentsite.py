@@ -50,7 +50,8 @@ def get_all_studentsite_news():
         boxes = soup.find_all('div', class_='content-box')
         print(f"[STUDENTSITE] Artikel ditemukan: {len(boxes)}")
 
-        for box in boxes[:10]:
+        # Membatasi slice [:1] hanya untuk mengambil 1 berita terbaru
+        for box in boxes[:1]:
             h3 = box.find('h3', class_='content-box-header')
             if h3 and h3.find('a'):
                 a = h3.find('a')
