@@ -5,6 +5,7 @@ on:
     # Waktu UTC (UTC +7 = WIB). 
     # Jam 00:00 UTC (07:00 WIB), Jam 07:00 UTC (14:00 WIB), Jam 13:00 UTC (20:00 WIB)
     - cron: '0 0,7,13 * * *'
+  workflow_dispatch: # Tambahan opsional: Biar bisa lo klik tombol "Run workflow" manual dari web GitHub
 
 permissions:
   contents: write
@@ -25,14 +26,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Chrome
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y wget gnupg
-          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-          sudo apt-get update -y
-          sudo apt-get install -y google-chrome-stable
+      - name: Setup Google Chrome
+        # REVISI: Menggunakan action resmi untuk setup Chrome tanpa apt-key add yang sudah deprecated
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
 
       - name: Install Python Dependencies
         run: |
