@@ -2,20 +2,37 @@ import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
 import time
 import os
+import re
+
+def get_chrome_version_local():
+    """Fungsi pembantu untuk mendeteksi versi utama Chrome di Windows secara otomatis"""
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        return None
+    try:
+        # Jalankan perintah registry windows untuk cek versi Chrome yang terinstal
+        stream = os.popen('reg query "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Google Chrome" /v DisplayVersion')
+        output = stream.read()
+        version_match = re.search(r'DisplayVersion\s+REG_SZ\s+(\d+)', output)
+        if version_match:
+            return int(version_match.group(1))
+    except:
+        pass
+    return 149 # Fallback ke 149 jika gagal deteksi registry
 
 def get_all_baak_news():
     options = uc.ChromeOptions()
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     
-    # Kondisi otomatis: Headless di Cloud (GitHub Actions), GUI Profile di Lokal Windows
+    # Deteksi otomatis versi Chrome lokal lo
+    local_version = get_chrome_version_local()
+    
     if os.getenv("GITHUB_ACTIONS") == "true":
         options.add_argument('--headless=new')
         options.add_argument('--single-process')
         options.add_argument('--disable-gpu')
         options.binary_location = "/usr/bin/google-chrome"
     else:
-        # Gunakan profile human agar cookie klik Turnstile lo tersimpan secara lokal
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         clean_profile = os.path.join(current_dir, "data", "chrome_clean_human_profile")
         options.add_argument(f'--user-data-dir={clean_profile}')
@@ -23,11 +40,10 @@ def get_all_baak_news():
     driver = None
     news_list = []
     try:
-        print("[BAAK] Membuka browser menggunakan Undetected Chromedriver (v149)...")
-        driver = uc.Chrome(options=options, version_main=149)
+        print(f"[BAAK] Membuka browser (Menggunakan Chrome Utama v{local_version if local_version else 'Cloud'})...")
+        driver = uc.Chrome(options=options, version_main=local_version)
         driver.set_window_size(1366, 768)
         
-        # Taktik Warmup Session via Google
         print("[BAAK] Membuka Google untuk kamuflase awal...")
         driver.get("https://www.google.com")
         time.sleep(5)
@@ -35,7 +51,6 @@ def get_all_baak_news():
         print("[BAAK] Mengalihkan navigasi ke portal berita BAAK...")
         driver.get("https://baak.gunadarma.ac.id/beritabaak")
         
-        # Jeda 25 detik untuk validasi pasif (silakan klik jika popup minta centang muncul di lokal)
         print("[BAAK] Menunggu proses validasi Turnstile (25 detik)...")
         time.sleep(25)
         
@@ -47,19 +62,17 @@ def get_all_baak_news():
             print("[!] Artikel kosong, kemungkinan diblokir Cloudflare.")
             return []
 
-        # Ambil semua berita untuk diproses filtering-nya di main.py
         for article in articles:
             h6 = article.find('h6')
             if h6 and h6.find('a'):
                 a_tag = h6.find('a')
                 title = a_tag.get_text(strip=True)
-                href = a_tag.get('href', '')
-                link = href if href.startswith('http') else f"https://baak.gunadarma.ac.id{href}"
+                link = a_tag.get('href', '')
+                link = link if link.startswith('http') else f"https://baak.gunadarma.ac.id{link}"
                 meta = article.find('div', class_='post-news-meta')
                 date = meta.get_text(strip=True) if meta else "N/A"
                 news_list.append({"title": title, "link": link, "date": date})
         
-        # Kembalikan list berita (indeks 0 menjadi berita terbaru di main.py)
         return news_list
 
     except Exception as e:

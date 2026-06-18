@@ -2,11 +2,27 @@ import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
 import time
 import os
+import re
+
+def get_chrome_version_local():
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        return None
+    try:
+        stream = os.popen('reg query "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Google Chrome" /v DisplayVersion')
+        output = stream.read()
+        version_match = re.search(r'DisplayVersion\s+REG_SZ\s+(\d+)', output)
+        if version_match:
+            return int(version_match.group(1))
+    except:
+        pass
+    return 149
 
 def get_all_studentsite_news():
     options = uc.ChromeOptions()
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    
+    local_version = get_chrome_version_local()
     
     if os.getenv("GITHUB_ACTIONS") == "true":
         options.add_argument('--headless=new')
@@ -21,8 +37,8 @@ def get_all_studentsite_news():
     driver = None
     news_list = []
     try:
-        print("[STUDENTSITE] Memulai browser menggunakan Undetected Chromedriver (v149)...")
-        driver = uc.Chrome(options=options, version_main=149)
+        print(f"[STUDENTSITE] Memulai browser (Menggunakan Chrome Utama v{local_version if local_version else 'Cloud'})...")
+        driver = uc.Chrome(options=options, version_main=local_version)
         driver.set_window_size(1366, 768)
         
         print("[STUDENTSITE] Membuka Google untuk warmup session...")
@@ -54,7 +70,6 @@ def get_all_studentsite_news():
                 date = date_div.get_text(strip=True).split("pada")[-1].strip() if date_div else "N/A"
                 news_list.append({"title": title, "link": link, "date": date})
         
-        # Mengembalikan list berita (Index 0 adalah berita paling gres)
         return news_list
         
     except Exception as e:
