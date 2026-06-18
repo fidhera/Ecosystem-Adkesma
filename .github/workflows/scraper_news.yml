@@ -2,66 +2,46 @@ name: Gunadarma News Scraper
 
 on:
   schedule:
-    # Waktu UTC (UTC +7 = WIB). 
-    # Jam 00:00 UTC (07:00 WIB), Jam 07:00 UTC (14:00 WIB), Jam 13:00 UTC (20:00 WIB)
-    - cron: '0 0,7,13 * * *'
-  workflow_dispatch: # Mengaktifkan tombol jalankan manual dari web GitHub
-
-permissions:
-  contents: write
+    - cron: '0 0,7,13 * * *' # Berjalan otomatis jam 7 pagi, 2 siang, dan 8 malam WIB
+  workflow_dispatch: # Mengaktifkan tombol "Run workflow" manual di web GitHub
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
 
-      - name: Setup Google Chrome
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
+    - name: Install Google Chrome Stable
+      uses: browser-actions/setup-chrome@v1
+      id: setup-chrome
+      with:
+        chrome-version: stable
 
-      - name: Install Python Dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools
-          pip install -r requirements.txt
+    - name: Cache Pip Dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
 
-      - name: Run Scraper
-        env:
-          BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
-          LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
-          STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
-        run: python main.py
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        pip install -r requirements.txt
 
-      - name: Commit Updated History
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          
-          # 1. Amankan file hasil scraping ke luar folder git (/tmp/)
-          cp data/last_updates.json /tmp/last_updates.json || true
-          
-          # 2. Hancurkan semua perubahan liar di runner tanpa sisa
-          git reset --hard HEAD
-          git clean -fd
-          
-          # 3. Tarik versi terbaru dari GitHub secara bersih
-          git pull origin main
-          
-          # 4. Kembalikan file hasil scraping tadi ke tempat semula
-          cp /tmp/last_updates.json data/last_updates.json || true
-          
-          # 5. Commit dan push paksa perubahan database
-          git add data/last_updates.json
-          git diff --cached --quiet || git commit -m "chore: update news history [skip ci]"
-          git push origin main
+    - name: Run Scraper Engine
+      env:
+        BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
+        LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
+        STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
+        CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+      run: |
+        python main.py

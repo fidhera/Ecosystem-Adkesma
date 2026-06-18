@@ -3,9 +3,10 @@ from bs4 import BeautifulSoup
 import time
 import os
 import re
+import shutil
 
 def get_chrome_version_local():
-    if os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("RAILWAY_ENVIRONMENT") is not None:
+    if os.getenv("GITHUB_ACTIONS") == "true":
         return None
     try:
         stream = os.popen('reg query "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Google Chrome" /v DisplayVersion')
@@ -24,11 +25,18 @@ def get_all_lepkom_news():
     
     local_version = get_chrome_version_local()
     
-    if os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("RAILWAY_ENVIRONMENT") is not None:
+    if os.getenv("GITHUB_ACTIONS") == "true":
         options.add_argument('--headless=new')
         options.add_argument('--disable-gpu')
-        if os.path.exists("/usr/bin/google-chrome"):
-            options.binary_location = "/usr/bin/google-chrome"
+        options.add_argument('--disable-setuid-sandbox')
+        
+        chrome_env_path = os.getenv("CHROME_BIN")
+        if chrome_env_path and os.path.exists(chrome_env_path):
+            options.binary_location = chrome_env_path
+        else:
+            system_path = shutil.which("google-chrome") or shutil.which("chrome")
+            if system_path:
+                options.binary_location = system_path
     else:
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         clean_profile = os.path.join(current_dir, "data", "chrome_clean_human_profile")
@@ -37,18 +45,18 @@ def get_all_lepkom_news():
     driver = None
     news_list = []
     try:
-        print(f"[LEPKOM] Memulai browser (Chrome Version Main: {local_version if local_version else 'Auto/Cloud'})...")
+        print(f"[LEPKOM] Memulai browser (Version Main: {local_version if local_version else 'Auto/Cloud'})...")
         driver = uc.Chrome(options=options, version_main=local_version)
         driver.set_window_size(1366, 768)
         
-        print("[LEPKOM] Membuka Google untuk warmup session...")
+        print("[LEPKOM] Warmup session...")
         driver.get("https://www.google.com")
         time.sleep(5)
         
-        print("[LEPKOM] Mengalihkan navigasi ke portal pengumuman Lepkom...")
+        print("[LEPKOM] Navigasi ke portal Lepkom...")
         driver.get("https://vm.lepkom.gunadarma.ac.id/pengumuman")
         
-        print("[LEPKOM] Menunggu halaman ter-render sempurna (15 detik)...")
+        print("[LEPKOM] Menunggu halaman render (15 detik)...")
         time.sleep(15)
         
         soup = BeautifulSoup(driver.page_source, 'html.parser')
@@ -75,7 +83,7 @@ def get_all_lepkom_news():
         return news_list
         
     except Exception as e:
-        print(f"[LEPKOM Error] Proses ekstraksi data gagal: {e}")
+        print(f"[LEPKOM Error] Scraper crash: {e}")
         return []
     finally:
         if driver:
