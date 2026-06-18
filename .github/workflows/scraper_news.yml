@@ -48,11 +48,20 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # REVISI FINAL: Amankan file JSON baru, tarik data repo, lalu timpa balik
-          git stash -- data/last_updates.json || true
-          git pull --rebase origin main
-          git stash pop || true
+          # 1. Amankan file hasil scraping ke luar folder git (/tmp/)
+          cp data/last_updates.json /tmp/last_updates.json || true
           
+          # 2. Hancurkan semua perubahan liar di runner tanpa sisa
+          git reset --hard HEAD
+          git clean -fd
+          
+          # 3. Tarik versi terbaru dari GitHub secara bersih
+          git pull origin main
+          
+          # 4. Kembalikan file hasil scraping tadi ke tempat semula
+          cp /tmp/last_updates.json data/last_updates.json || true
+          
+          # 5. Commit dan push paksa perubahan database
           git add data/last_updates.json
           git diff --cached --quiet || git commit -m "chore: update news history [skip ci]"
           git push origin main
