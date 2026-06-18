@@ -17,9 +17,10 @@ def get_all_baak_news():
     
     print("[BAAK] Melakukan penyamaran TLS Fingerprint ke portal arsip berita...")
     try:
+        # Perbaikan: Mengubah "chrome124" menjadi "chrome" agar kompatibel di Linux Cloud
         response = cf_requests.get(
             target_url,
-            impersonate="chrome124",
+            impersonate="chrome",
             timeout=30,
             verify=False
         )
@@ -48,8 +49,8 @@ def get_all_baak_news():
                 
                 meta = article.find('div', class_='post-news-meta')
                 date = "N/A"
-                if meta_div := meta:
-                    spans = meta_div.find_all('span')
+                if meta:
+                    spans = meta.find_all('span')
                     if len(spans) >= 2:
                         date = spans[1].get_text(strip=True)
                 
