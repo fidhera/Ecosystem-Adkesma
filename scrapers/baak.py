@@ -1,85 +1,75 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
-from bs4 import BeautifulSoup
-import time
 import os
+import sys
+import time
+import warnings
+from bs4 import BeautifulSoup
 
-def _build_driver():
-    options = Options()
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--disable-setuid-sandbox')
-    options.add_argument('--window-size=1366,768')
-    options.add_argument(
-        'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-        'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/124.0.0.0 Safari/537.36'
-    )
+# Menggunakan curl_cffi untuk bypass enkripsi TLS/JA3 Fingerprint Cloudflare
+try:
+    from curl_cffi import requests as cf_requests
+except ImportError:
+    # Fallback aman jika library belum terinstal di lokal
+    import requests as cf_requests
 
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        options.add_argument('--headless=new')
-
-    chrome_bin = os.getenv("CHROME_BIN")
-    if chrome_bin and os.path.exists(chrome_bin):
-        options.binary_location = chrome_bin
-
-    return webdriver.Chrome(options=options)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 def get_all_baak_news():
-    driver = None
     news_list = []
+    
+    # Kunci mati URL arsip berita BAAK sesuai instruksi utama
+    target_url = "https://baak.gunadarma.ac.id/beritabaak"
+    
+    print("[BAAK] Melakukan penyamaran TLS Fingerprint ke portal arsip berita...")
     try:
-        print("[BAAK] Memulai browser...")
-        driver = _build_driver()
-
-        # Kita tembak langsung ke landing page utama tempat widget-post berada
-        driver.get("https://baak.gunadarma.ac.id")
-        print("[BAAK] Menunggu pemuatan halaman dan bypass Cloudflare (30s)...")
+        # Menyamar sebagai Google Chrome 124 asli (Bypass Turnstile otomatis tanpa browser fisik)
+        response = cf_requests.get(
+            target_url,
+            impersonate="chrome124",
+            timeout=30,
+            verify=False
+        )
         
-        try:
-            WebDriverWait(driver, 35).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "article.widget-post"))
-            )
-        except Exception:
-            time.sleep(30)
+        print(f"[DEBUG BAAK] Status HTTP Server: {response.status_code}")
+        
+        if response.status_code != 200:
+            print(f"[BAAK Error] Cloudflare memblokir akses. Status: {response.status_code}")
+            return []
 
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        articles = soup.find_all('article', class_='widget-post')
-        print(f"[BAAK] Artikel ditemukan: {len(articles)}")
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Sesuai isi file asli HTML arsip /beritabaak yang lo kirim tadi
+        articles = soup.find_all('article', class_='post-news')
+        print(f"[BAAK] Artikel ditemukan di web: {len(articles)}")
 
-        # Hanya ambil 1 berita indeks ke-0 (paling baru dan teratas di web)
+        if len(articles) == 0:
+            print("[DEBUG BAAK] Gagal mengekstrak elemen HTML. Struktur DOM berubah atau diblokir.")
+            return []
+
+        # Hanya ambil 1 berita indeks ke-0 (paling baru di paling atas)
         for article in articles[:1]:
-            p_tag = article.find('p', class_='text-primary')
-            if p_tag and p_tag.find('a'):
-                a_tag = p_tag.find('a')
+            h6 = article.find('h6')
+            if h6 and h6.find('a'):
+                a_tag = h6.find('a')
+                title = a_tag.get_text(strip=True)
                 href = a_tag.get('href', '')
                 link = href if href.startswith('http') else f"https://baak.gunadarma.ac.id{href}"
                 
-                # Mengambil tag small untuk tanggal sebelum membersihkan teks judul
-                small_tag = a_tag.find('small')
+                # Ambil tanggal dari div.post-news-meta span indeks kedua
+                meta_div = article.find('div', class_='post-news-meta')
                 date = "N/A"
-                if small_tag:
-                    date = small_tag.get_text(strip=True).replace("(", "").replace(")", "")
-                    # Hapus tag small dari struktur pohon agar tidak mengotori ekstraksi judul utama
-                    small_tag.extract()
+                if meta_div:
+                    spans = meta_div.find_all('span')
+                    if len(spans) >= 2:
+                        date = spans[1].get_text(strip=True)
                 
-                # Ambil teks judul murni setelah tag small dilepas
-                title = a_tag.get_text(strip=True)
+                news_list.append({
+                    "title": title,
+                    "link": link,
+                    "date": date
+                })
                 
-                news_list.append({"title": title, "link": link, "date": date})
-        
         return news_list
 
     except Exception as e:
-        print(f"[BAAK Error] {e}")
+        print(f"[BAAK CRITICAL ERROR] Gagal memproses data: {e}")
         return []
-    finally:
-        if driver:
-            try:
-                driver.quit()
-            except Exception:
-                pass
