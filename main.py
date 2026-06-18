@@ -42,7 +42,7 @@ def save_history(history):
     if not os.path.exists('data'):
         os.makedirs('data')
     for key in history:
-        history[key] = history[key][-20:]
+        history[key] = history[key][-50:] # Simpan hingga 50 riwayat terakhir
     with open(DATA_FILE, "w") as f:
         json.dump(history, f, indent=4)
 
@@ -94,16 +94,17 @@ def sync_portal(source_name, news_fetcher, history):
     if history_key not in history:
         history[history_key] = []
 
-    sent_count = 0
-    for news in all_news:
-        if news['title'] not in history[history_key]:
-            status = send_to_discord(webhook_url, news, source_name)
-            if status in [200, 204]:
-                history[history_key].append(news['title'])
-                sent_count += 1
-                time.sleep(2)
+    # REVISI STRATEGI: Hanya ambil 1 berita paling atas/terbaru dari web (Index 0)
+    latest_news = all_news[0]
+    
+    if latest_news['title'] not in history[history_key]:
+        status = send_to_discord(webhook_url, latest_news, source_name)
+        if status in [200, 204]:
+            history[history_key].append(latest_news['title'])
+    else:
+        print(f"[-] Berita terbaru '{latest_news['title']}' sudah pernah dikirim. Skip!")
 
-    print(f"--- {source_name} SELESAI: {sent_count} BERITA TERKIRIM ---")
+    print(f"--- {source_name} SIKLUS SELESAI ---")
     return history
 
 def run_logic():
@@ -114,17 +115,24 @@ def run_logic():
         ("STUDENTSITE", get_all_studentsite_news),
     ]
     for name, fetcher in portals:
-        history = sync_portal(name, fetcher, history)
+        try:
+            history = sync_portal(name, fetcher, history)
+        except Exception as loop_err:
+            print(f"[!] Gagal memproses portal {name}: {loop_err}")
+            continue
+            
     save_history(history)
     print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
 
 if __name__ == "__main__":
     print("[SYSTEM] ECA Monitor Cloud Version Starting...")
-    while True:
-        try:
-            run_logic()
-        except Exception as e:
-            print(f"[CRITICAL ERROR] {e}")
-            
-        print("\n[*] Sinkronisasi selesai. Tidur 1 jam...")
-        time.sleep(3600)
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        run_logic()
+    else:
+        while True:
+            try:
+                run_logic()
+            except Exception as e:
+                print(f"[CRITICAL ERROR] {e}")
+            print("\n[*] Sinkronisasi selesai. Tidur 1 jam...")
+            time.sleep(3600)

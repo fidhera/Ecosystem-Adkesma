@@ -1,2 +1,6 @@
 **/__pycache__/
 .env
+data/chrome_automation_profile/
+data/chrome_clean_human_profile/
+venv/
+*.pyc
