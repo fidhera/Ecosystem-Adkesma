@@ -1,139 +1,120 @@
-import os
-import json
-import requests
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from bs4 import BeautifulSoup
 import time
-import warnings
-import sys
-from dotenv import load_dotenv
-from scrapers.baak import get_all_baak_news
-from scrapers.lepkom import get_all_lepkom_news
-from scrapers.studentsite import get_all_studentsite_news
+import os
 
-warnings.filterwarnings("ignore", category=ResourceWarning)
+def _build_driver():
+    options = Options()
 
-if os.path.exists(".env"):
-    load_dotenv()
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--window-size=1366,768')
 
-DATA_FILE = "data/last_updates.json"
+    options.add_argument(
+        'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/124.0.0.0 Safari/537.36'
+    )
 
-def load_history():
-    default_history = {
-        "baak_history": [],
-        "lepkom_history": [],
-        "studentsite_history": []
-    }
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r") as f:
-                content = f.read()
-            if not content.strip():
-                return default_history
-            data = json.loads(content)
-            for key in default_history:
-                if key not in data:
-                    data[key] = []
-            return data
-        except Exception as e:
-            print(f"[!] Error load history: {e}")
-            return default_history
-    return default_history
+    # === TAMBAHAN ANTI-DETEKSI DARI GPT ===
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
 
-def save_history(history):
-    if not os.path.exists('data'):
-        os.makedirs('data')
-    for key in history:
-        history[key] = history[key][-50:]
-    with open(DATA_FILE, "w") as f:
-        json.dump(history, f, indent=4)
-
-def send_to_discord(webhook_url, news, source_name):
-    display_name = f"ECA Monitor - {source_name}"
-    print(f"[+] [{source_name}] Mengirim: {news['title']}")
-
-    if not webhook_url or not webhook_url.startswith("http"):
-        print(f"[!] Webhook {source_name} tidak valid.")
-        return None
-
-    colors = {"BAAK": 3447003, "LEPKOM": 3066993, "STUDENTSITE": 15105570}
-    payload = {
-        "username": display_name,
-        "embeds": [{
-            "title": news['title'],
-            "url": news['link'],
-            "description": f"📅 **Tanggal:** {news['date']}",
-            "color": colors.get(source_name, 3447003),
-            "footer": {"text": "Ecosystem Adkesma Assistant"}
-        }]
-    }
-    try:
-        res = requests.post(webhook_url, json=payload, timeout=15)
-        print(f"[DEBUG] Discord {source_name}: {res.status_code}")
-        return res.status_code
-    except Exception as e:
-        print(f"[!] Discord Error: {e}")
-        return None
-
-def sync_portal(source_name, news_fetcher, history):
-    print(f"\n--- SINKRONISASI PORTAL {source_name} ---")
-    try:
-        all_news = news_fetcher()
-    except Exception as e:
-        print(f"[!] Gagal menarik data {source_name}: {e}")
-        return history
-
-    if not all_news:
-        print(f"[!] Tidak ada berita untuk {source_name}, skip.")
-        return history
-
-    webhook_url = os.getenv(f"{source_name.upper()}_WEBHOOK")
-    if not webhook_url:
-        print(f"[!] Webhook {source_name}_WEBHOOK tidak ditemukan.")
-        return history
-
-    history_key = f"{source_name.lower()}_history"
-    if history_key not in history:
-        history[history_key] = []
-
-    sent_count = 0
-    for news in all_news:
-        if news['title'] not in history[history_key]:
-            status = send_to_discord(webhook_url, news, source_name)
-            if status in [200, 204]:
-                history[history_key].append(news['title'])
-                sent_count += 1
-                time.sleep(2)
-
-    print(f"--- {source_name} SELESAI: {sent_count} berita terkirim ---")
-    return history
-
-def run_logic():
-    history = load_history()
-    portals = [
-        ("BAAK", get_all_baak_news),
-        ("LEPKOM", get_all_lepkom_news),
-        ("STUDENTSITE", get_all_studentsite_news),
-    ]
-    for name, fetcher in portals:
-        try:
-            history = sync_portal(name, fetcher, history)
-        except Exception as e:
-            print(f"[!] Portal {name} gagal total: {e}")
-
-    save_history(history)
-    print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
-
-if __name__ == "__main__":
-    print("[SYSTEM] ECA Monitor Starting...")
     if os.getenv("GITHUB_ACTIONS") == "true":
-        print("[ENV] GitHub Actions terdeteksi. Satu siklus eksekusi.")
-        run_logic()
-        sys.exit(0)
-    else:
-        print("[ENV] Mode lokal. Loop per jam.")
-        while True:
+        options.add_argument('--headless=new')
+
+    chrome_bin = os.getenv("CHROME_BIN")
+    if chrome_bin and os.path.exists(chrome_bin):
+        options.binary_location = chrome_bin
+
+    return webdriver.Chrome(options=options)
+
+def get_all_baak_news():
+    driver = None
+    news_list = []
+
+    try:
+        print("[BAAK] Memulai browser...")
+        driver = _build_driver()
+
+        # === SUNTIKAN SCRIPT STEALTH SEBELUM NAVIGASI ===
+        driver.execute_script(
+            """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            })
+            """
+        )
+
+        driver.get("https://baak.gunadarma.ac.id/beritabaak")
+        print("[BAAK] Menunggu halaman render...")
+
+        # === LOOP MONITORING CLOUDFLARE 60 DETIK ===
+        for i in range(60):
+            time.sleep(1)
+            title = driver.title
+            print(f"[BAAK] Waiting CF... {i+1}s | {title}")
+            if "Just a moment" not in title:
+                break
+
+        # Cetak cookie untuk keperluan audit session token
+        print("[BAAK] Cookies didapatkan:", driver.get_cookies())
+        print("[BAAK] Title :", driver.title)
+        print("[BAAK] URL :", driver.current_url)
+
+        html = driver.page_source
+        with open("baak_debug.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        print("[BAAK] Debug HTML berhasil disimpan")
+
+        soup = BeautifulSoup(html, "html.parser")
+        articles = soup.find_all("article")
+        print(f"[BAAK] Artikel ditemukan: {len(articles)}")
+
+        for article in articles[:1]:
+            h6 = article.find("h6")
+            if not h6:
+                continue
+
+            a = h6.find("a")
+            if not a:
+                continue
+
+            title = a.get_text(strip=True)
+            href = a.get("href", "")
+            link = href if href.startswith("http") else f"https://baak.gunadarma.ac.id{href}"
+
+            # Ekstraksi komponen tanggal terbit
+            meta_div = article.find('div', class_='post-news-meta')
+            date = "N/A"
+            if meta_div:
+                spans = meta_div.find_all('span')
+                if len(spans) >= 2:
+                    date = spans[1].get_text(strip=True)
+
+            news_list.append({
+                "title": title,
+                "link": link,
+                "date": date
+            })
+
+        print(f"[BAAK] Total berita diambil: {len(news_list)}")
+        return news_list
+
+    except Exception as e:
+        print(f"[BAAK ERROR] {e}")
+        return []
+
+    finally:
+        if driver:
             try:
-                run_logic()
-            except Exception as e:
-                print(f"[CRITICAL] {e}")
-            print("\n[*] Tidur 1 jam...")
-            time.sleep(3600)
+                driver.quit()
+            except:
+                pass
