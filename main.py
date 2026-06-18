@@ -75,10 +75,10 @@ def send_to_discord(webhook_url, news, source_name):
         return None
 
 def fetch_local_baak_csv():
-    """Fungsi pembaca lokal CSV hasil dari Web Scraper Extension laptop"""
+    """Fungsi pembaca lokal CSV hasil dari Web Scraper Extension"""
     news_list = []
     if not os.path.exists(BAAK_CSV):
-        print(f"[!] Info BAAK: File {BAAK_CSV} tidak ditemukan. Skip proses lokal BAAK.")
+        print(f"[!] Info BAAK: File {BAAK_CSV} tidak ditemukan. Skip proses BAAK.")
         return []
     
     try:
@@ -94,7 +94,7 @@ def fetch_local_baak_csv():
                 "date": latest_news.get("tanggal", "N/A")
             })
     except Exception as e:
-        print(f"[!] Gagal memproses data CSV Lokal BAAK: {e}")
+        print(f"[!] Gagal memproses data CSV BAAK: {e}")
     return news_list
 
 def sync_portal(source_name, news_fetcher, history):
@@ -133,18 +133,12 @@ def sync_portal(source_name, news_fetcher, history):
 def run_logic():
     history = load_history()
     
-    # Deteksi Lingkungan Eksekusi
-    is_github = os.getenv("GITHUB_ACTIONS") == "true"
-    
-    portals = []
-    if not is_github:
-        # Jika dijalankan di laptop, BAAK CSV ikut dieksekusi
-        portals.append(("BAAK", fetch_local_baak_csv))
-        
-    portals.extend([
+    # BAAK, LEPKOM, dan STUDENTSITE diatur sejajar agar selalu dieksekusi bersamaan
+    portals = [
+        ("BAAK", fetch_local_baak_csv),
         ("LEPKOM", get_all_lepkom_news),
         ("STUDENTSITE", get_all_studentsite_news),
-    ])
+    ]
     
     for name, fetcher in portals:
         try:
