@@ -36,30 +36,40 @@ def get_all_baak_news():
         print("[BAAK] Memulai browser...")
         driver = _build_driver()
 
-        driver.get("https://baak.gunadarma.ac.id/beritabaak")
+        # Kita tembak langsung ke landing page utama tempat widget-post berada
+        driver.get("https://baak.gunadarma.ac.id")
         print("[BAAK] Menunggu pemuatan halaman dan bypass Cloudflare (30s)...")
         
         try:
             WebDriverWait(driver, 35).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "article.post-news"))
+                EC.presence_of_element_located((By.CSS_SELECTOR, "article.widget-post"))
             )
         except Exception:
             time.sleep(30)
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        articles = soup.find_all('article', class_='post-news')
+        articles = soup.find_all('article', class_='widget-post')
         print(f"[BAAK] Artikel ditemukan: {len(articles)}")
 
-        # Hanya ambil 1 berita teratas (paling baru)
+        # Hanya ambil 1 berita indeks ke-0 (paling baru dan teratas di web)
         for article in articles[:1]:
-            h6 = article.find('h6')
-            if h6 and h6.find('a'):
-                a_tag = h6.find('a')
+            p_tag = article.find('p', class_='text-primary')
+            if p_tag and p_tag.find('a'):
+                a_tag = p_tag.find('a')
+                href = a_tag.get('href', '')
+                link = href if href.startswith('http') else f"https://baak.gunadarma.ac.id{href}"
+                
+                # Mengambil tag small untuk tanggal sebelum membersihkan teks judul
+                small_tag = a_tag.find('small')
+                date = "N/A"
+                if small_tag:
+                    date = small_tag.get_text(strip=True).replace("(", "").replace(")", "")
+                    # Hapus tag small dari struktur pohon agar tidak mengotori ekstraksi judul utama
+                    small_tag.extract()
+                
+                # Ambil teks judul murni setelah tag small dilepas
                 title = a_tag.get_text(strip=True)
-                link = a_tag.get('href', '')
-                link = link if link.startswith('http') else f"https://baak.gunadarma.ac.id{link}"
-                meta = article.find('div', class_='post-news-meta')
-                date = meta.get_text(strip=True) if meta else "N/A"
+                
                 news_list.append({"title": title, "link": link, "date": date})
         
         return news_list
