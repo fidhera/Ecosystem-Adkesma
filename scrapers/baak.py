@@ -36,39 +36,36 @@ def get_all_baak_news():
         print("[BAAK] Memulai browser...")
         driver = _build_driver()
 
-        # Kita tembak langsung ke landing page utama tempat widget-post berada
-        driver.get("https://baak.gunadarma.ac.id")
-        print("[BAAK] Menunggu pemuatan halaman dan bypass Cloudflare (30s)...")
+        driver.get("https://baak.gunadarma.ac.id/beritabaak")
+        print("[BAAK] Menunggu pemuatan halaman arsip berita BAAK (30s)...")
         
         try:
             WebDriverWait(driver, 35).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "article.widget-post"))
+                EC.presence_of_element_located((By.CSS_SELECTOR, "article.post-news"))
             )
         except Exception:
             time.sleep(30)
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        articles = soup.find_all('article', class_='widget-post')
+        articles = soup.find_all('article', class_='post-news')
         print(f"[BAAK] Artikel ditemukan: {len(articles)}")
 
-        # Hanya ambil 1 berita indeks ke-0 (paling baru dan teratas di web)
+        # Hanya ambil 1 berita indeks teratas (paling baru)
         for article in articles[:1]:
-            p_tag = article.find('p', class_='text-primary')
-            if p_tag and p_tag.find('a'):
-                a_tag = p_tag.find('a')
+            h6 = article.find('h6')
+            if h6 and h6.find('a'):
+                a_tag = h6.find('a')
+                title = a_tag.get_text(strip=True)
                 href = a_tag.get('href', '')
                 link = href if href.startswith('http') else f"https://baak.gunadarma.ac.id{href}"
                 
-                # Mengambil tag small untuk tanggal sebelum membersihkan teks judul
-                small_tag = a_tag.find('small')
+                # Ekstraksi tanggal dari elemen metadata post-news-meta span
+                meta_div = article.find('div', class_='post-news-meta')
                 date = "N/A"
-                if small_tag:
-                    date = small_tag.get_text(strip=True).replace("(", "").replace(")", "")
-                    # Hapus tag small dari struktur pohon agar tidak mengotori ekstraksi judul utama
-                    small_tag.extract()
-                
-                # Ambil teks judul murni setelah tag small dilepas
-                title = a_tag.get_text(strip=True)
+                if meta_div:
+                    spans = meta_div.find_all('span')
+                    if len(spans) >= 2:
+                        date = spans[1].get_text(strip=True)
                 
                 news_list.append({"title": title, "link": link, "date": date})
         
