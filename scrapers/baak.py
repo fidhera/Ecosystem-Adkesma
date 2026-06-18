@@ -5,11 +5,10 @@ import os
 import re
 
 def get_chrome_version_local():
-    """Fungsi pembantu untuk mendeteksi versi utama Chrome di Windows secara otomatis"""
+    """Mendeteksi versi utama Chrome di Windows secara otomatis, kembalikan None jika di Cloud Actions"""
     if os.getenv("GITHUB_ACTIONS") == "true":
         return None
     try:
-        # Jalankan perintah registry windows untuk cek versi Chrome yang terinstal
         stream = os.popen('reg query "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Google Chrome" /v DisplayVersion')
         output = stream.read()
         version_match = re.search(r'DisplayVersion\s+REG_SZ\s+(\d+)', output)
@@ -17,14 +16,13 @@ def get_chrome_version_local():
             return int(version_match.group(1))
     except:
         pass
-    return 149 # Fallback ke 149 jika gagal deteksi registry
+    return None
 
 def get_all_baak_news():
     options = uc.ChromeOptions()
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     
-    # Deteksi otomatis versi Chrome lokal lo
     local_version = get_chrome_version_local()
     
     if os.getenv("GITHUB_ACTIONS") == "true":
@@ -40,11 +38,11 @@ def get_all_baak_news():
     driver = None
     news_list = []
     try:
-        print(f"[BAAK] Membuka browser (Menggunakan Chrome Utama v{local_version if local_version else 'Cloud'})...")
+        print(f"[BAAK] Membuka browser (Chrome Version Main: {local_version if local_version else 'Auto/Cloud'})...")
         driver = uc.Chrome(options=options, version_main=local_version)
         driver.set_window_size(1366, 768)
         
-        print("[BAAK] Membuka Google untuk kamuflase awal...")
+        print("[BAAK] Membuka Google untuk warmup session...")
         driver.get("https://www.google.com")
         time.sleep(5)
         
@@ -59,7 +57,7 @@ def get_all_baak_news():
         print(f"[BAAK] Artikel ditemukan di web: {len(articles)}")
         
         if len(articles) == 0:
-            print("[!] Artikel kosong, kemungkinan diblokir Cloudflare.")
+            print("[!] Artikel kosong, akses diblokir Cloudflare atau Driver Crash.")
             return []
 
         for article in articles:

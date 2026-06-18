@@ -15,7 +15,7 @@ def get_chrome_version_local():
             return int(version_match.group(1))
     except:
         pass
-    return 149
+    return None
 
 def get_all_lepkom_news():
     options = uc.ChromeOptions()
@@ -37,7 +37,7 @@ def get_all_lepkom_news():
     driver = None
     news_list = []
     try:
-        print(f"[LEPKOM] Memulai browser (Menggunakan Chrome Utama v{local_version if local_version else 'Cloud'})...")
+        print(f"[LEPKOM] Memulai browser (Chrome Version Main: {local_version if local_version else 'Auto/Cloud'})...")
         driver = uc.Chrome(options=options, version_main=local_version)
         driver.set_window_size(1366, 768)
         
@@ -56,7 +56,7 @@ def get_all_lepkom_news():
         print(f"[LEPKOM] Artikel ditemukan di web: {len(articles)}")
         
         if len(articles) == 0:
-            print("[!] Struktur artikel kosong, kemungkinan tertahan dinding Turnstile.")
+            print("[!] Struktur artikel kosong, akses diblokir Cloudflare atau Driver Crash.")
             return []
 
         for article in articles:
