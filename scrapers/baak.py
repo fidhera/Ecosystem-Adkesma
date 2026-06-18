@@ -4,25 +4,19 @@ import time
 import warnings
 from bs4 import BeautifulSoup
 
-# Menggunakan curl_cffi untuk bypass enkripsi TLS/JA3 Fingerprint Cloudflare
 try:
     from curl_cffi import requests as cf_requests
 except ImportError:
-    # Fallback aman jika library belum terinstal di lokal
     import requests as cf_requests
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
 def get_all_baak_news():
     news_list = []
-    
-    # Kunci mati URL arsip berita BAAK sesuai instruksi utama
     target_url = "https://baak.gunadarma.ac.id/beritabaak"
     
     print("[BAAK] Melakukan penyamaran TLS Fingerprint ke portal arsip berita...")
     try:
-<<<<<<< HEAD
-        # Menyamar sebagai Google Chrome 124 asli (Bypass Turnstile otomatis tanpa browser fisik)
         response = cf_requests.get(
             target_url,
             impersonate="chrome124",
@@ -37,8 +31,6 @@ def get_all_baak_news():
             return []
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Sesuai isi file asli HTML arsip /beritabaak yang lo kirim tadi
         articles = soup.find_all('article', class_='post-news')
         print(f"[BAAK] Artikel ditemukan di web: {len(articles)}")
 
@@ -46,27 +38,6 @@ def get_all_baak_news():
             print("[DEBUG BAAK] Gagal mengekstrak elemen HTML. Struktur DOM berubah atau diblokir.")
             return []
 
-        # Hanya ambil 1 berita indeks ke-0 (paling baru di paling atas)
-=======
-        print("[BAAK] Memulai browser...")
-        driver = _build_driver()
-
-        driver.get("https://baak.gunadarma.ac.id/beritabaak")
-        print("[BAAK] Menunggu pemuatan halaman arsip berita BAAK (30s)...")
-        
-        try:
-            WebDriverWait(driver, 35).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "article.post-news"))
-            )
-        except Exception:
-            time.sleep(30)
-
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        articles = soup.find_all('article', class_='post-news')
-        print(f"[BAAK] Artikel ditemukan: {len(articles)}")
-
-        # Hanya ambil 1 berita indeks teratas (paling baru)
->>>>>>> 6c3e9d94e76df86cd5c5906ee21a23855dfbbc83
         for article in articles[:1]:
             h6 = article.find('h6')
             if h6 and h6.find('a'):
@@ -75,40 +46,21 @@ def get_all_baak_news():
                 href = a_tag.get('href', '')
                 link = href if href.startswith('http') else f"https://baak.gunadarma.ac.id{href}"
                 
-<<<<<<< HEAD
-                # Ambil tanggal dari div.post-news-meta span indeks kedua
-=======
-                # Ekstraksi tanggal dari elemen metadata post-news-meta span
->>>>>>> 6c3e9d94e76df86cd5c5906ee21a23855dfbbc83
-                meta_div = article.find('div', class_='post-news-meta')
+                meta = article.find('div', class_='post-news-meta')
                 date = "N/A"
-                if meta_div:
+                if meta_div := meta:
                     spans = meta_div.find_all('span')
                     if len(spans) >= 2:
                         date = spans[1].get_text(strip=True)
-<<<<<<< HEAD
                 
                 news_list.append({
                     "title": title,
                     "link": link,
                     "date": date
                 })
-=======
->>>>>>> 6c3e9d94e76df86cd5c5906ee21a23855dfbbc83
                 
         return news_list
 
     except Exception as e:
-<<<<<<< HEAD
         print(f"[BAAK CRITICAL ERROR] Gagal memproses data: {e}")
         return []
-=======
-        print(f"[BAAK Error] {e}")
-        return []
-    finally:
-        if driver:
-            try:
-                driver.quit()
-            except Exception:
-                pass
->>>>>>> 6c3e9d94e76df86cd5c5906ee21a23855dfbbc83
