@@ -5,8 +5,7 @@ import os
 import re
 
 def get_chrome_version_local():
-    """Mendeteksi versi utama Chrome di Windows secara otomatis, kembalikan None jika di Cloud Actions"""
-    if os.getenv("GITHUB_ACTIONS") == "true":
+    if os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("RAILWAY_ENVIRONMENT") is not None:
         return None
     try:
         stream = os.popen('reg query "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Google Chrome" /v DisplayVersion')
@@ -25,11 +24,11 @@ def get_all_baak_news():
     
     local_version = get_chrome_version_local()
     
-    if os.getenv("GITHUB_ACTIONS") == "true":
+    if os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("RAILWAY_ENVIRONMENT") is not None:
         options.add_argument('--headless=new')
-        options.add_argument('--single-process')
         options.add_argument('--disable-gpu')
-        options.binary_location = "/usr/bin/google-chrome"
+        if os.path.exists("/usr/bin/google-chrome"):
+            options.binary_location = "/usr/bin/google-chrome"
     else:
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         clean_profile = os.path.join(current_dir, "data", "chrome_clean_human_profile")
@@ -57,7 +56,6 @@ def get_all_baak_news():
         print(f"[BAAK] Artikel ditemukan di web: {len(articles)}")
         
         if len(articles) == 0:
-            print("[!] Artikel kosong, akses diblokir Cloudflare atau Driver Crash.")
             return []
 
         for article in articles:

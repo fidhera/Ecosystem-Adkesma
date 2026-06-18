@@ -50,7 +50,6 @@ def send_to_discord(webhook_url, news, source_name):
     display_name = f"ECA Monitor - {source_name}"
     print(f"[+] [{source_name}] Mencoba mengirim ke Discord: {news['title']}")
     
-    # Deteksi proteksi jika webhook url kosong atau cacat format
     if not webhook_url or not webhook_url.startswith("http"):
         print(f"[!] [ERROR CRITICAL] URL Webhook untuk {source_name} tidak valid atau kosong string!")
         return None
@@ -74,7 +73,6 @@ def send_to_discord(webhook_url, news, source_name):
     }
     try:
         res = requests.post(webhook_url, json=payload, timeout=15)
-        # SUNTIKAN DEBUG LOG: Paksa server memuntahkan status asli dari API Discord
         print(f"[DEBUG] Respons API Discord untuk {source_name}: Status Code {res.status_code} | Response: {res.text}")
         return res.status_code
     except Exception as e:
@@ -86,7 +84,7 @@ def sync_portal(source_name, news_fetcher, history):
     try:
         all_news = news_fetcher()
         if not all_news:
-            print(f"[!] Tidak ada berita ditemukan untuk {source_name}")
+            print(f"[!] Tidak ada berita ditemukan atau akses diblokir untuk {source_name}")
             return history
     except Exception as e:
         print(f"[!] Gagal menarik data {source_name}: {e}")
@@ -102,7 +100,6 @@ def sync_portal(source_name, news_fetcher, history):
     if history_key not in history:
         history[history_key] = []
 
-    # Ambil 1 berita paling atas/terbaru dari web (Index 0)
     latest_news = all_news[0]
     
     if latest_news['title'] not in history[history_key]:
@@ -136,10 +133,15 @@ def run_logic():
     print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
 
 if __name__ == "__main__":
-    print("[SYSTEM] ECA Monitor Cloud Version Starting...")
-    if os.getenv("GITHUB_ACTIONS") == "true":
+    print("[SYSTEM] ECA Monitor Production Engine Starting...")
+    
+    # Deteksi adaptif: Jika berjalan di GitHub Actions atau di dalam Kontainer Docker Railway
+    if os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("RAILWAY_ENVIRONMENT") is not None:
+        print("[ENV] Mode Cloud Detektif Terbaca. Menjalankan Satu Siklus Eksekusi Singkat.")
         run_logic()
+        sys.exit(0)
     else:
+        print("[ENV] Mode Lokal Terbaca. Menjalankan Siklus Daemon Per Jam.")
         while True:
             try:
                 run_logic()
