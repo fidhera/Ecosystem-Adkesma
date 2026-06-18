@@ -1,61 +1,106 @@
-import os
-import requests
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
-import warnings
+import time
+import os
 
-warnings.filterwarnings("ignore", category=UserWarning)
+
+def _build_driver():
+    options = Options()
+
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--window-size=1366,768')
+
+    options.add_argument(
+        'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/124.0.0.0 Safari/537.36'
+    )
+
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        options.add_argument('--headless=new')
+
+    chrome_bin = os.getenv("CHROME_BIN")
+
+    if chrome_bin and os.path.exists(chrome_bin):
+        options.binary_location = chrome_bin
+
+    return webdriver.Chrome(options=options)
+
 
 def get_all_baak_news():
+    driver = None
     news_list = []
-    target_url = "https://baak.gunadarma.ac.id/beritabaak"
-    
-    # Gunakan token API gratis untuk memutar IP residensial manusia di cloud
-    # Daftarkan token ini di GitHub Secrets dengan nama BAAK_API_KEY jika ditaruh di env
-    api_key = os.getenv("BAAK_API_KEY", "DAFTAR_GRATIS_DI_SCRAPERANT_DAN_PASTE_DISINI")
-    
-    # Jika token belum diset, gunakan gateway proxy publik sebagai cadangan
-    proxy_url = f"https://api.scraperant.com/v2/general?url={target_url}&x-api-key={api_key}"
-    
-    print("[BAAK] Menembak portal arsip berita via Scraper Residensial API Gateway...")
+
     try:
-        response = requests.get(proxy_url, timeout=45)
-        print(f"[DEBUG BAAK] Proxy API Gateway Response Code: {response.status_code}")
-        
-        if response.status_code != 200:
-            print(f"[BAAK Error] Proxy API gagal menjebol Cloudflare. Status: {response.status_code}")
-            return []
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-        articles = soup.find_all('article', class_='post-news')
-        print(f"[BAAK] Artikel ditemukan di web: {len(articles)}")
+        print("[BAAK] Memulai browser...")
+        driver = _build_driver()
 
-        if len(articles) == 0:
-            print("[DEBUG BAAK] DOM kosong, proxy terdeteksi atau halaman telat memuat.")
-            return []
+        driver.get("https://baak.gunadarma.ac.id/beritabaak")
+
+        print("[BAAK] Menunggu halaman render...")
+
+        time.sleep(15)
+
+        print("[BAAK] Title :", driver.title)
+        print("[BAAK] URL :", driver.current_url)
+
+        html = driver.page_source
+
+        print(html[:1500])
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        articles = soup.find_all("article")
+
+        print(f"[BAAK] Artikel ditemukan: {len(articles)}")
 
         for article in articles[:1]:
-            h6 = article.find('h6')
-            if h6 and h6.find('a'):
-                a_tag = h6.find('a')
-                title = a_tag.get_text(strip=True)
-                href = a_tag.get('href', '')
-                link = href if href.startswith('http') else f"https://baak.gunadarma.ac.id{href}"
-                
-                meta = article.find('div', class_='post-news-meta')
-                date = "N/A"
-                if meta:
-                    spans = meta.find_all('span')
-                    if len(spans) >= 2:
-                        date = spans[1].get_text(strip=True)
-                
-                news_list.append({
-                    "title": title,
-                    "link": link,
-                    "date": date
-                })
-                
+
+            h6 = article.find("h6")
+
+            if not h6:
+                continue
+
+            a = h6.find("a")
+
+            if not a:
+                continue
+
+            title = a.get_text(strip=True)
+
+            href = a.get("href", "")
+
+            link = (
+                href
+                if href.startswith("http")
+                else f"https://baak.gunadarma.ac.id{href}"
+            )
+
+            news_list.append({
+                "title": title,
+                "link": link,
+                "date": "N/A"
+            })
+
+        print(f"[BAAK] Total berita diambil: {len(news_list)}")
+
         return news_list
 
     except Exception as e:
-        print(f"[BAAK CRITICAL ERROR] Gagal memproses data proxy: {e}")
+        print(f"[BAAK ERROR] {e}")
         return []
+
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
