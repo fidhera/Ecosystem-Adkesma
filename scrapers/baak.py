@@ -1,13 +1,7 @@
 import os
-import sys
-import time
-import warnings
+import requests
 from bs4 import BeautifulSoup
-
-try:
-    from curl_cffi import requests as cf_requests
-except ImportError:
-    import requests as cf_requests
+import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -15,20 +9,20 @@ def get_all_baak_news():
     news_list = []
     target_url = "https://baak.gunadarma.ac.id/beritabaak"
     
-    print("[BAAK] Melakukan penyamaran TLS Fingerprint ke portal arsip berita...")
+    # Gunakan token API gratis untuk memutar IP residensial manusia di cloud
+    # Daftarkan token ini di GitHub Secrets dengan nama BAAK_API_KEY jika ditaruh di env
+    api_key = os.getenv("BAAK_API_KEY", "DAFTAR_GRATIS_DI_SCRAPERANT_DAN_PASTE_DISINI")
+    
+    # Jika token belum diset, gunakan gateway proxy publik sebagai cadangan
+    proxy_url = f"https://api.scraperant.com/v2/general?url={target_url}&x-api-key={api_key}"
+    
+    print("[BAAK] Menembak portal arsip berita via Scraper Residensial API Gateway...")
     try:
-        # Perbaikan: Mengubah "chrome124" menjadi "chrome" agar kompatibel di Linux Cloud
-        response = cf_requests.get(
-            target_url,
-            impersonate="chrome",
-            timeout=30,
-            verify=False
-        )
-        
-        print(f"[DEBUG BAAK] Status HTTP Server: {response.status_code}")
+        response = requests.get(proxy_url, timeout=45)
+        print(f"[DEBUG BAAK] Proxy API Gateway Response Code: {response.status_code}")
         
         if response.status_code != 200:
-            print(f"[BAAK Error] Cloudflare memblokir akses. Status: {response.status_code}")
+            print(f"[BAAK Error] Proxy API gagal menjebol Cloudflare. Status: {response.status_code}")
             return []
 
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -36,7 +30,7 @@ def get_all_baak_news():
         print(f"[BAAK] Artikel ditemukan di web: {len(articles)}")
 
         if len(articles) == 0:
-            print("[DEBUG BAAK] Gagal mengekstrak elemen HTML. Struktur DOM berubah atau diblokir.")
+            print("[DEBUG BAAK] DOM kosong, proxy terdeteksi atau halaman telat memuat.")
             return []
 
         for article in articles[:1]:
@@ -63,5 +57,5 @@ def get_all_baak_news():
         return news_list
 
     except Exception as e:
-        print(f"[BAAK CRITICAL ERROR] Gagal memproses data: {e}")
+        print(f"[BAAK CRITICAL ERROR] Gagal memproses data proxy: {e}")
         return []
