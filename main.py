@@ -176,7 +176,6 @@ def send_to_discord(webhook_url, news, source_name):
         "footer": {"text": "Ecosystem Adkesma Assistant"}
     }
     
-    # Kustomisasi payload data super lengkap khusus Kemahasiswaan
     if source_name == "KEMAHASISWAAN":
         embed["fields"] = [
             {"name": "📂 Kategori", "value": news.get("category", "General"), "inline": True},
@@ -198,10 +197,6 @@ def send_to_discord(webhook_url, news, source_name):
         return None
 
 def fetch_local_baak_csv():
-<<<<<<< HEAD
-=======
-    """Fungsi pembaca lokal CSV hasil dari Web Scraper Extension"""
->>>>>>> 95485c768a2d840ab63ab4df456addd340c0eba8
     news_list = []
     if not os.path.exists(BAAK_CSV):
         print(f"[!] Info BAAK: File {BAAK_CSV} tidak ditemukan. Skip proses BAAK.")
@@ -259,18 +254,11 @@ def sync_portal(source_name, news_fetcher, history):
 def run_logic():
     history = load_history()
     
-<<<<<<< HEAD
-=======
-    # BAAK, LEPKOM, dan STUDENTSITE diatur sejajar agar selalu dieksekusi bersamaan
->>>>>>> 95485c768a2d840ab63ab4df456addd340c0eba8
     portals = [
         ("BAAK", fetch_local_baak_csv),
         ("LEPKOM", get_all_lepkom_news),
         ("STUDENTSITE", get_all_studentsite_news),
-<<<<<<< HEAD
         ("KEMAHASISWAAN", get_all_kemahasiswaan_news)
-=======
->>>>>>> 95485c768a2d840ab63ab4df456addd340c0eba8
     ]
     
     for name, fetcher in portals:
