@@ -6,6 +6,7 @@ import time
 import warnings
 import sys
 from dotenv import load_dotenv
+from bs4 import BeautifulSoup
 from scrapers.lepkom import get_all_lepkom_news
 from scrapers.studentsite import get_all_studentsite_news
 
@@ -18,104 +19,119 @@ DATA_FILE = "data/last_updates.json"
 BAAK_CSV = "scrapers/local_data/baak_data.csv"
 
 # ==============================================================================
-# ENGINE PORTAL INTERNAL: SCRAPER KEMAHASISWAAN 
+# ENGINE 1: BAAK - LIVE DOM PARSER (LOKAL) & CSV PARSER (FALLBACK CLOUD)
 # ==============================================================================
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup
-
-def _build_driver():
-    options = Options()
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--window-size=1366,768')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        options.add_argument('--headless=new')
-        chrome_bin = os.getenv("CHROME_BIN")
-        if chrome_bin and os.path.exists(chrome_bin):
-            options.binary_location = chrome_bin
-
-    return webdriver.Chrome(options=options)
-
-def get_all_kemahasiswaan_news():
-    driver = None
+def fetch_live_baak_news():
+    """Scraper live DOM HTML BAAK (Sangat aman dijalankan di laptop lokal)"""
+    print("[BAAK] Menembak live parsing DOM HTML ke server BAAK...")
     news_list = []
-    target_url = "https://kemahasiswaan.gunadarma.ac.id/"
-
-    print("[KEMAHASISWAAN] Memulai browser stealth...")
+    target_url = "https://baak.gunadarma.ac.id/beritabaak"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     try:
-        driver = _build_driver()
-        driver.get(target_url)
-        
-        print("[KEMAHASISWAAN] Menunggu halaman memuat sempurna (15s)...")
-        time.sleep(15)
-
-        html = driver.page_source
-        soup = BeautifulSoup(html, "html.parser")
-
-        # Menargetkan kontainer "Latest posts"
-        latest_section = soup.find("div", class_="post-module-3")
-        if not latest_section:
-            print("[KEMAHASISWAAN] Kontainer Latest posts tidak ditemukan di DOM. Mencoba fallback parser global...")
-            latest_section = soup # Jika pembungkus tidak ketemu, cari di scope root global DOM
+        res = requests.get(target_url, headers=headers, timeout=20)
+        if res.status_code != 200:
+            print(f"[BAAK] Cloudflare memblokir server Actions (Status {res.status_code}). Skip live mode.")
+            return []
             
-        articles = latest_section.find_all("article") if latest_section else []
-        print(f"[KEMAHASISWAAN] Artikel ditemukan di DOM: {len(articles)}")
-
+        soup = BeautifulSoup(res.content, "html.parser")
+        articles = soup.find_all("article", class_="post-news")
+        
         for article in articles[:3]:
-            h4_title = article.find("h4", class_="post-title")
-            if not h4_title or not h4_title.find("a"):
-                continue
-            a_tag = h4_title.find("a")
+            body_div = article.find("div", class_="post-news-body")
+            if not body_div: continue
+            h6_tag = body_div.find("h6")
+            if not h6_tag or not h6_tag.find("a"): continue
+            a_tag = h6_tag.find("a")
             title = a_tag.get_text(strip=True)
             link = a_tag.get("href", "")
+            if link and not link.startswith("http"):
+                link = "https://baak.gunadarma.ac.id" + link
 
-            cat_span = article.find("span", class_="post-cat")
-            category = cat_span.get_text(strip=True) if cat_span else "General"
-
-            meta_div = article.find("div", class_="entry-meta")
             date = "N/A"
-            views = "0 views"
+            meta_div = body_div.find("div", class_="post-news-meta")
             if meta_div:
-                if date_span := meta_div.find("span", class_="post-on"):
-                    date = date_span.get_text(strip=True)
-                if views_span := meta_div.find("span", class_="post-by"):
-                    views = views_span.get_text(strip=True)
+                date_span = meta_div.find("span", class_="text-black")
+                if date_span: date = date_span.get_text(strip=True)
 
+            news_list.append({"title": title, "link": link, "date": date})
+        return news_list
+    except Exception as e:
+        print(f"[BAAK ERROR] Gagal live parsing: {e}")
+        return []
+
+def fetch_local_baak_csv():
+    """Fallback pembaca CSV BAAK (Hasil unduhan ekstensi Web Scraper di laptop)"""
+    news_list = []
+    if not os.path.exists(BAAK_CSV):
+        print(f"[!] Info BAAK: Berkas {BAAK_CSV} tidak ditemukan di runner virtual.")
+        return []
+    try:
+        with open(BAAK_CSV, mode="r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        if rows:
+            latest_news = rows[0]
+            news_list.append({
+                "title": latest_news.get("judul", "N/A"),
+                "link": "https://baak.gunadarma.ac.id/beritabaak",
+                "date": latest_news.get("tanggal", "N/A")
+            })
+    except Exception as e:
+        print(f"[!] Gagal memproses berkas CSV BAAK: {e}")
+    return news_list
+
+# ==============================================================================
+# ENGINE 2: KEMAHASISWAAN - BYPASS CLOUDFLARE TURNSTILE VIA NATIVE RSS 2.0
+# ==============================================================================
+def get_all_kemahasiswaan_news():
+    print("[KEMAHASISWAAN] Menembak bypass cloudflare via jalur RSS 2.0 XML...")
+    news_list = []
+    feed_url = "https://kemahasiswaan.gunadarma.ac.id/feed/posts"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    try:
+        res = requests.get(feed_url, headers=headers, timeout=20)
+        if res.status_code != 200:
+            print(f"[KEMAHASISWAAN ERROR] Server RSS offline (Status {res.status_code})")
+            return []
+            
+        soup = BeautifulSoup(res.content, "xml")
+        items = soup.find_all("item")
+        
+        for entry in items[:3]:
+            title = entry.find("title").get_text(strip=True) if entry.find("title") else "N/A"
+            link = entry.find("link").get_text(strip=True) if entry.find("link") else "https://kemahasiswaan.gunadarma.ac.id"
+            pub_date = entry.find("pubDate").get_text(strip=True) if entry.find("pubDate") else "N/A"
+            if pub_date != "N/A" and "," in pub_date:
+                date_display = pub_date.split(",")[1].split("+")[0].strip()
+            else:
+                date_display = pub_date
+                
+            category = entry.find("category").get_text(strip=True) if entry.find("category") else "General"
+            
             image_url = None
-            if thumb_div := article.find("div", class_="img-hover-slide"):
-                style_attr = thumb_div.get("style", "")
-                if "url(" in style_attr:
-                    image_url = style_attr.split("url(")[1].split(")")[0].strip("'\"")
+            enclosure_tag = entry.find("enclosure")
+            if enclosure_tag and enclosure_tag.get("url"):
+                image_url = enclosure_tag.get("url")
 
             news_list.append({
                 "title": title,
                 "link": link,
-                "date": date,
+                "date": date_display,
                 "category": category,
-                "views": views,
+                "views": "Direct RSS Feed",
                 "image": image_url
             })
-
-        print(f"[KEMAHASISWAAN] Total berita diproses: {len(news_list)}")
         return news_list
-
     except Exception as e:
-        print(f"[KEMAHASISWAAN ERROR] Gagal melakukan pengerukan data: {e}")
+        print(f"[KEMAHASISWAAN ERROR] Gagal melakukan parsing RSS XML: {e}")
         return []
-        
-    finally:
-        if driver:
-            try:
-                driver.quit()
-            except:
-                pass
 
 # ==============================================================================
-# MANAGEMENT FRAMEWORK ENGINE
+# CORE CORE SINKRONISASI MANAGEMENT ENGINE
 # ==============================================================================
 def load_history():
     default_history = {
@@ -128,12 +144,10 @@ def load_history():
         try:
             with open(DATA_FILE, "r") as f:
                 content = f.read()
-            if not content.strip():
-                return default_history
+            if not content.strip(): return default_history
             data = json.loads(content)
             for key in default_history:
-                if key not in data:
-                    data[key] = []
+                if key not in data: data[key] = []
             return data
         except Exception as e:
             print(f"[!] Error load history: {e}")
@@ -141,98 +155,45 @@ def load_history():
     return default_history
 
 def save_history(history):
-    if not os.path.exists('data'):
-        os.makedirs('data')
-    for key in history:
-        history[key] = history[key][-50:]
-    with open(DATA_FILE, "w") as f:
-        json.dump(history, f, indent=4)
+    if not os.path.exists('data'): os.makedirs('data')
+    for key in history: history[key] = history[key][-50:]
+    with open(DATA_FILE, "w") as f: json.dump(history, f, indent=4)
 
 def send_to_discord(webhook_url, news, source_name):
     display_name = f"ECA Monitor - {source_name}"
     print(f"[+] [{source_name}] Mengirim: {news['title']}")
+    if not webhook_url or not webhook_url.startswith("http"): return None
 
-    if not webhook_url or not webhook_url.startswith("http"):
-        print(f"[!] Webhook {source_name} tidak valid.")
-        return None
-
-    colors = {
-        "BAAK": 3447003, 
-        "LEPKOM": 3066993, 
-        "STUDENTSITE": 15105570,
-        "KEMAHASISWAAN": 10232280 
-    }
-    
+    colors = {"BAAK": 3447003, "LEPKOM": 3066993, "STUDENTSITE": 15105570, "KEMAHASISWAAN": 10232280}
     embed = {
-        "title": news['title'],
-        "url": news['link'],
-        "description": f"📅 **Tanggal:** {news['date']}",
-        "color": colors.get(source_name, 3447003),
-        "footer": {"text": "Ecosystem Adkesma Assistant"}
+        "title": news['title'], "url": news['link'],
+        "description": f"📅 **Tanggal Diterbitkan:** {news['date']}",
+        "color": colors.get(source_name, 3447003), "footer": {"text": "Ecosystem Adkesma Assistant"}
     }
-    
     if source_name == "KEMAHASISWAAN":
         embed["fields"] = [
             {"name": "📂 Kategori", "value": news.get("category", "General"), "inline": True},
-            {"name": "👁️ Pembaca", "value": news.get("views", "0 views"), "inline": True}
+            {"name": "🌐 Sumber Data", "value": "Kemahasiswaan Cloud Feed", "inline": True}
         ]
-        if news.get("image"):
-            embed["image"] = {"url": news["image"]}
+        if news.get("image"): embed["image"] = {"url": news["image"]}
 
-    payload = {
-        "username": display_name,
-        "embeds": [embed]
-    }
+    payload = {"username": display_name, "embeds": [embed]}
     try:
         res = requests.post(webhook_url, json=payload, timeout=15)
-        print(f"[DEBUG] Discord {source_name}: {res.status_code}")
         return res.status_code
-    except Exception as e:
-        print(f"[!] Discord Error: {e}")
-        return None
-
-def fetch_local_baak_csv():
-    news_list = []
-    if not os.path.exists(BAAK_CSV):
-        print(f"[!] Info BAAK: File {BAAK_CSV} tidak ditemukan. Skip proses BAAK.")
-        return []
-    
-    try:
-        with open(BAAK_CSV, mode="r", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
-            
-        if rows:
-            latest_news = rows[0]
-            news_list.append({
-                "title": latest_news.get("judul", "N/A"),
-                "link": "https://baak.gunadarma.ac.id/beritabaak",
-                "date": latest_news.get("tanggal", "N/A")
-            })
-    except Exception as e:
-        print(f"[!] Gagal memproses data CSV BAAK: {e}")
-    return news_list
+    except: return None
 
 def sync_portal(source_name, news_fetcher, history):
     print(f"\n--- SINKRONISASI PORTAL {source_name} ---")
-    try:
-        all_news = news_fetcher()
-    except Exception as e:
-        print(f"[!] Gagal menarik data {source_name}: {e}")
-        return history
+    try: all_news = news_fetcher()
+    except Exception as e: return history
 
-    if not all_news:
-        print(f"[!] Tidak ada berita baru/terdeteksi untuk {source_name}, skip.")
-        return history
-
+    if not all_news: return history
     webhook_url = os.getenv(f"{source_name.upper()}_WEBHOOK")
-    if not webhook_url:
-        print(f"[!] Webhook {source_name}_WEBHOOK tidak ditemukan.")
-        return history
+    if not webhook_url: return history
 
     history_key = f"{source_name.lower()}_history"
-    if history_key not in history:
-        history[history_key] = []
+    if history_key not in history: history[history_key] = []
 
     sent_count = 0
     for news in reversed(all_news):
@@ -242,41 +203,33 @@ def sync_portal(source_name, news_fetcher, history):
                 history[history_key].append(news['title'])
                 sent_count += 1
                 time.sleep(2)
-
-    print(f"--- {source_name} SELESAI: {sent_count} berita terkirim ---")
     return history
 
 def run_logic():
     history = load_history()
+    is_github = os.getenv("GITHUB_ACTIONS") == "true"
+    
+    # Penentuan taktis jalur baca BAAK berdasarkan runtime eksekusi lingkungan
+    baak_engine = fetch_local_baak_csv if is_github else fetch_live_baak_news
     
     portals = [
-        ("BAAK", fetch_local_baak_csv),
+        ("BAAK", baak_engine),
         ("LEPKOM", get_all_lepkom_news),
         ("STUDENTSITE", get_all_studentsite_news),
         ("KEMAHASISWAAN", get_all_kemahasiswaan_news)
     ]
-    
     for name, fetcher in portals:
-        try:
-            history = sync_portal(name, fetcher, history)
-        except Exception as e:
-            print(f"[!] Portal {name} gagal total: {e}")
-
+        try: history = sync_portal(name, fetcher, history)
+        except Exception as e: print(f"[!] Portal {name} gagal total: {e}")
     save_history(history)
-    print("\n[SUCCESS] Seluruh ekosistem ECA telah sinkron.")
 
 if __name__ == "__main__":
     print("[SYSTEM] ECA Monitor Starting...")
     if os.getenv("GITHUB_ACTIONS") == "true":
-        print("[ENV] GitHub Actions terdeteksi. Satu siklus eksekusi Cloud.")
         run_logic()
         sys.exit(0)
     else:
-        print("[ENV] Mode lokal terdeteksi. Loop pemantauan berjalan otomatis per jam.")
         while True:
-            try:
-                run_logic()
-            except Exception as e:
-                print(f"[CRITICAL] {e}")
-            print("\n[*] Tidur 1 jam... Biarkan terminal ini tetap menyala.")
+            try: run_logic()
+            except Exception as e: print(f"[CRITICAL] {e}")
             time.sleep(3600)
