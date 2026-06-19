@@ -18,7 +18,7 @@ DATA_FILE = "data/last_updates.json"
 BAAK_CSV = "scrapers/local_data/baak_data.csv"
 
 # ==============================================================================
-# INTEGRASI INTEGRAL: UTOR SCARPER KEMAHASISWAAN SEBAGAI ENGINE INTERNAL MAIN
+# ENGINE PORTAL INTERNAL: SCRAPER KEMAHASISWAAN 
 # ==============================================================================
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -50,8 +50,8 @@ def get_all_kemahasiswaan_news():
         driver = _build_driver()
         driver.get(target_url)
         
-        print("[KEMAHASISWAAN] Menunggu halaman memuat sempurna (10s)...")
-        time.sleep(10)
+        print("[KEMAHASISWAAN] Menunggu halaman memuat sempurna (15s)...")
+        time.sleep(15)
 
         html = driver.page_source
         soup = BeautifulSoup(html, "html.parser")
@@ -59,15 +59,13 @@ def get_all_kemahasiswaan_news():
         # Menargetkan kontainer "Latest posts"
         latest_section = soup.find("div", class_="post-module-3")
         if not latest_section:
-            print("[KEMAHASISWAAN] Kontainer Latest posts tidak ditemukan.")
-            return []
-
-        articles = latest_section.find_all("article")
+            print("[KEMAHASISWAAN] Kontainer Latest posts tidak ditemukan di DOM. Mencoba fallback parser global...")
+            latest_section = soup # Jika pembungkus tidak ketemu, cari di scope root global DOM
+            
+        articles = latest_section.find_all("article") if latest_section else []
         print(f"[KEMAHASISWAAN] Artikel ditemukan di DOM: {len(articles)}")
 
-        # Ambil 3 artikel teratas untuk mengantisipasi jika ada multi-post dalam satu waktu
         for article in articles[:3]:
-            # 1. Ekstraksi Judul dan Link
             h4_title = article.find("h4", class_="post-title")
             if not h4_title or not h4_title.find("a"):
                 continue
@@ -75,11 +73,9 @@ def get_all_kemahasiswaan_news():
             title = a_tag.get_text(strip=True)
             link = a_tag.get("href", "")
 
-            # 2. Ekstraksi Kategori Berita
             cat_span = article.find("span", class_="post-cat")
             category = cat_span.get_text(strip=True) if cat_span else "General"
 
-            # 3. Ekstraksi Komponen Tanggal & Views
             meta_div = article.find("div", class_="entry-meta")
             date = "N/A"
             views = "0 views"
@@ -89,7 +85,6 @@ def get_all_kemahasiswaan_news():
                 if views_span := meta_div.find("span", class_="post-by"):
                     views = views_span.get_text(strip=True)
 
-            # 4. Ekstraksi Thumbnail Banner Gambar
             image_url = None
             if thumb_div := article.find("div", class_="img-hover-slide"):
                 style_attr = thumb_div.get("style", "")
@@ -120,7 +115,7 @@ def get_all_kemahasiswaan_news():
                 pass
 
 # ==============================================================================
-# CORE CORE MANAGEMENT LOGIC BOT ADKESMA SINKRONISASI
+# MANAGEMENT FRAMEWORK ENGINE
 # ==============================================================================
 def load_history():
     default_history = {
@@ -165,7 +160,7 @@ def send_to_discord(webhook_url, news, source_name):
         "BAAK": 3447003, 
         "LEPKOM": 3066993, 
         "STUDENTSITE": 15105570,
-        "KEMAHASISWAAN": 10232280  # Ungu tua premium untuk Kemahasiswaan
+        "KEMAHASISWAAN": 10232280 
     }
     
     embed = {
