@@ -5,11 +5,11 @@ import time
 import warnings
 import sys
 from dotenv import load_dotenv
-from bs4 import BeautifulSoup
 from curl_cffi import requests
 
 from scrapers.lepkom import get_all_lepkom_news
 from scrapers.studentsite import get_all_studentsite_news
+from scrapers.kemahasiswaan import get_all_kemahasiswaan_news
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
 
@@ -20,37 +20,7 @@ DATA_FILE = "data/last_updates.json"
 BAAK_CSV = "scrapers/local_data/baak_data.csv"
 
 # ==============================================================================
-# SELEKTOR DRIVER SELENIUM MODERN (LEPKOM, STUDENTSITE & KEMAHASISWAAN FIX)
-# ==============================================================================
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.chrome.options import Options
-
-def _build_driver():
-    options = Options()
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--window-size=1366,768')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        options.add_argument('--headless=new')
-        chrome_bin = os.getenv("CHROME_BIN")
-        if chrome_bin and os.path.exists(chrome_bin):
-            options.binary_location = chrome_bin
-        return webdriver.Chrome(options=options)
-    else:
-        try:
-            from webdriver_manager.chrome import ChromeDriverManager
-            service = ChromeService(ChromeDriverManager().install())
-            return webdriver.Chrome(service=service, options=options)
-        except Exception as e:
-            print(f"[SYSTEM] Gagal memuat driver otomatis, mencoba default: {e}")
-            return webdriver.Chrome(options=options)
-
-# ==============================================================================
-# ENGINE 1: BAAK - LIVE DOM PARSER (LOKAL) & CSV PARSER (FALLBACK CLOUD)
+# ENGINE PORTAL LOKAL BAAK
 # ==============================================================================
 def fetch_live_baak_news():
     print("[BAAK] Menembak live parsing DOM HTML ke server BAAK...")
@@ -62,6 +32,7 @@ def fetch_live_baak_news():
             print(f"[BAAK] Cloudflare memblokir requests (Status {res.status_code}). Skip live mode.")
             return []
             
+        from bs4 import BeautifulSoup
         soup = BeautifulSoup(res.content, "html.parser")
         articles = soup.find_all("article", class_="post-news")
         
@@ -107,69 +78,6 @@ def fetch_local_baak_csv():
     except Exception as e:
         print(f"[!] Gagal memproses berkas CSV BAAK: {e}")
     return news_list
-
-# ==============================================================================
-# ENGINE 2: KEMAHASISWAAN - SELENIUM XML SINKRONISASI BYPASS CLOUDFLARE
-# ==============================================================================
-def get_all_kemahasiswaan_news():
-    print("[KEMAHASISWAAN] Membuka jalur RSS XML lewat Stealth Browser...")
-    driver = None
-    news_list = []
-    feed_url = "https://kemahasiswaan.gunadarma.ac.id/feed/posts"
-    
-    try:
-        driver = _build_driver()
-        driver.get(feed_url)
-        
-        print("[KEMAHASISWAAN] Menunggu bypass otomatis verifikasi Cloudflare (20s)...")
-        time.sleep(20)
-        
-        xml_content = driver.page_source
-        soup = BeautifulSoup(xml_content, "html.parser")
-        
-        # PERBAIKAN: Gunakan pemanggilan rekursif nama tag untuk menjamin pembacaan elemen item
-        items = soup.find_all("item")
-        if not items:
-            # Fallback jika browser membungkus dokumen ke bentuk node string teks
-            items = soup.select("channel item")
-            
-        print(f"[KEMAHASISWAAN] Item berita XML ditemukan: {len(items)}")
-        
-        for entry in items[:3]:
-            title = entry.find("title").get_text(strip=True) if entry.find("title") else "N/A"
-            link = entry.find("link").get_text(strip=True) if entry.find("link") else "https://kemahasiswaan.gunadarma.ac.id"
-            
-            # html.parser memaksa nama elemen menjadi lowercase (pubdate)
-            pub_date_tag = entry.find("pubdate")
-            pub_date = pub_date_tag.get_text(strip=True) if pub_date_tag else "N/A"
-            if pub_date != "N/A" and "," in pub_date:
-                date_display = pub_date.split(",")[1].split("+")[0].strip()
-            else:
-                date_display = pub_date
-                
-            category = entry.find("category").get_text(strip=True) if entry.find("category") else "General"
-            
-            image_url = None
-            enclosure_tag = entry.find("enclosure")
-            if enclosure_tag and enclosure_tag.get("url"):
-                image_url = enclosure_tag.get("url")
-
-            news_list.append({
-                "title": title,
-                "link": link,
-                "date": date_display,
-                "category": category,
-                "views": "Cloud RSS Feed",
-                "image": image_url
-            })
-        return news_list
-    except Exception as e:
-        print(f"[KEMAHASISWAAN ERROR] Gagal memproses data XML Feed: {e}")
-        return []
-    finally:
-        if driver:
-            try: driver.quit()
-            except: pass
 
 # ==============================================================================
 # CORE SINKRONISASI MANAGEMENT ENGINE
