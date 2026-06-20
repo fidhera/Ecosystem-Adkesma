@@ -125,17 +125,23 @@ def get_all_kemahasiswaan_news():
         time.sleep(20)
         
         xml_content = driver.page_source
-        # FIX: Gunakan html.parser bawaan agar jalan mulus di cloud environment tanpa library luar
         soup = BeautifulSoup(xml_content, "html.parser")
         
+        # PERBAIKAN: Gunakan pemanggilan rekursif nama tag untuk menjamin pembacaan elemen item
         items = soup.find_all("item")
+        if not items:
+            # Fallback jika browser membungkus dokumen ke bentuk node string teks
+            items = soup.select("channel item")
+            
         print(f"[KEMAHASISWAAN] Item berita XML ditemukan: {len(items)}")
         
         for entry in items[:3]:
             title = entry.find("title").get_text(strip=True) if entry.find("title") else "N/A"
             link = entry.find("link").get_text(strip=True) if entry.find("link") else "https://kemahasiswaan.gunadarma.ac.id"
             
-            pub_date = entry.find("pubdate").get_text(strip=True) if entry.find("pubdate") else "N/A"
+            # html.parser memaksa nama elemen menjadi lowercase (pubdate)
+            pub_date_tag = entry.find("pubdate")
+            pub_date = pub_date_tag.get_text(strip=True) if pub_date_tag else "N/A"
             if pub_date != "N/A" and "," in pub_date:
                 date_display = pub_date.split(",")[1].split("+")[0].strip()
             else:
