@@ -1,12 +1,13 @@
 import os
 import json
 import csv
-import requests
 import time
 import warnings
 import sys
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
+from curl_cffi import requests
+
 from scrapers.lepkom import get_all_lepkom_news
 from scrapers.studentsite import get_all_studentsite_news
 
@@ -19,20 +20,46 @@ DATA_FILE = "data/last_updates.json"
 BAAK_CSV = "scrapers/local_data/baak_data.csv"
 
 # ==============================================================================
+# SELEKTOR DRIVER SELENIUM MODERN (LEPKOM, STUDENTSITE & KEMAHASISWAAN FIX)
+# ==============================================================================
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options
+
+def _build_driver():
+    options = Options()
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1366,768')
+    options.add_argument('--disable-blink-features=AutomationControlled')
+
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        options.add_argument('--headless=new')
+        chrome_bin = os.getenv("CHROME_BIN")
+        if chrome_bin and os.path.exists(chrome_bin):
+            options.binary_location = chrome_bin
+        return webdriver.Chrome(options=options)
+    else:
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            service = ChromeService(ChromeDriverManager().install())
+            return webdriver.Chrome(service=service, options=options)
+        except Exception as e:
+            print(f"[SYSTEM] Gagal memuat driver otomatis, mencoba default: {e}")
+            return webdriver.Chrome(options=options)
+
+# ==============================================================================
 # ENGINE 1: BAAK - LIVE DOM PARSER (LOKAL) & CSV PARSER (FALLBACK CLOUD)
 # ==============================================================================
 def fetch_live_baak_news():
-    """Scraper live DOM HTML BAAK (Sangat aman dijalankan di laptop lokal)"""
     print("[BAAK] Menembak live parsing DOM HTML ke server BAAK...")
     news_list = []
     target_url = "https://baak.gunadarma.ac.id/beritabaak"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
     try:
-        res = requests.get(target_url, headers=headers, timeout=20)
+        res = requests.get(target_url, impersonate="chrome", timeout=20)
         if res.status_code != 200:
-            print(f"[BAAK] Cloudflare memblokir server Actions (Status {res.status_code}). Skip live mode.")
+            print(f"[BAAK] Cloudflare memblokir requests (Status {res.status_code}). Skip live mode.")
             return []
             
         soup = BeautifulSoup(res.content, "html.parser")
@@ -62,7 +89,6 @@ def fetch_live_baak_news():
         return []
 
 def fetch_local_baak_csv():
-    """Fallback pembaca CSV BAAK (Hasil unduhan ekstensi Web Scraper di laptop)"""
     news_list = []
     if not os.path.exists(BAAK_CSV):
         print(f"[!] Info BAAK: Berkas {BAAK_CSV} tidak ditemukan di runner virtual.")
@@ -83,27 +109,34 @@ def fetch_local_baak_csv():
     return news_list
 
 # ==============================================================================
-# ENGINE 2: KEMAHASISWAAN - BYPASS CLOUDFLARE TURNSTILE VIA NATIVE RSS 2.0
+# ENGINE 2: KEMAHASISWAAN - SELENIUM XML SINKRONISASI BYPASS CLOUDFLARE
 # ==============================================================================
 def get_all_kemahasiswaan_news():
-    print("[KEMAHASISWAAN] Menembak bypass cloudflare via jalur RSS 2.0 XML...")
+    print("[KEMAHASISWAAN] Membuka jalur RSS XML lewat Stealth Browser...")
+    driver = None
     news_list = []
     feed_url = "https://kemahasiswaan.gunadarma.ac.id/feed/posts"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    
     try:
-        res = requests.get(feed_url, headers=headers, timeout=20)
-        if res.status_code != 200:
-            print(f"[KEMAHASISWAAN ERROR] Server RSS offline (Status {res.status_code})")
-            return []
-            
-        soup = BeautifulSoup(res.content, "xml")
+        driver = _build_driver()
+        driver.get(feed_url)
+        
+        # Alokasi jeda waktu agar tantangan Managed Challenge Cloudflare terselesaikan
+        print("[KEMAHASISWAAN] Menunggu bypass otomatis verifikasi Cloudflare (20s)...")
+        time.sleep(20)
+        
+        # Ekstraksi source HTML/XML yang sudah terbuka setelah ter-bypass
+        xml_content = driver.page_source
+        soup = BeautifulSoup(xml_content, "xml")
+        
+        # Menyesuaikan dengan penargetan tag RSS 2.0 <item> dokumen asli lo
         items = soup.find_all("item")
+        print(f"[KEMAHASISWAAN] Item berita XML ditemukan: {len(items)}")
         
         for entry in items[:3]:
             title = entry.find("title").get_text(strip=True) if entry.find("title") else "N/A"
             link = entry.find("link").get_text(strip=True) if entry.find("link") else "https://kemahasiswaan.gunadarma.ac.id"
+            
             pub_date = entry.find("pubDate").get_text(strip=True) if entry.find("pubDate") else "N/A"
             if pub_date != "N/A" and "," in pub_date:
                 date_display = pub_date.split(",")[1].split("+")[0].strip()
@@ -122,16 +155,20 @@ def get_all_kemahasiswaan_news():
                 "link": link,
                 "date": date_display,
                 "category": category,
-                "views": "Direct RSS Feed",
+                "views": "Cloud RSS Feed",
                 "image": image_url
             })
         return news_list
     except Exception as e:
-        print(f"[KEMAHASISWAAN ERROR] Gagal melakukan parsing RSS XML: {e}")
+        print(f"[KEMAHASISWAAN ERROR] Gagal memproses data XML Feed: {e}")
         return []
+    finally:
+        if driver:
+            try: driver.quit()
+            except: pass
 
 # ==============================================================================
-# CORE CORE SINKRONISASI MANAGEMENT ENGINE
+# CORE SINKRONISASI MANAGEMENT ENGINE
 # ==============================================================================
 def load_history():
     default_history = {
@@ -185,8 +222,10 @@ def send_to_discord(webhook_url, news, source_name):
 
 def sync_portal(source_name, news_fetcher, history):
     print(f"\n--- SINKRONISASI PORTAL {source_name} ---")
-    try: all_news = news_fetcher()
-    except Exception as e: return history
+    try: 
+        all_news = news_fetcher()
+    except Exception as e: 
+        return history
 
     if not all_news: return history
     webhook_url = os.getenv(f"{source_name.upper()}_WEBHOOK")
@@ -209,7 +248,6 @@ def run_logic():
     history = load_history()
     is_github = os.getenv("GITHUB_ACTIONS") == "true"
     
-    # Penentuan taktis jalur baca BAAK berdasarkan runtime eksekusi lingkungan
     baak_engine = fetch_local_baak_csv if is_github else fetch_live_baak_news
     
     portals = [
