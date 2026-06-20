@@ -21,81 +21,59 @@ def _build_driver():
     return webdriver.Chrome(options=options)
 
 def get_all_kemahasiswaan_news():
+    print("[KEMAHASISWAAN] Membuka jalur RSS XML lewat Stealth Browser...")
     driver = None
     news_list = []
-    target_url = "https://kemahasiswaan.gunadarma.ac.id/"
-
-    print("[KEMAHASISWAAN] Memulai browser stealth...")
+    feed_url = "https://kemahasiswaan.gunadarma.ac.id/feed/posts"
+    
     try:
         driver = _build_driver()
-        driver.get(target_url)
+        driver.get(feed_url)
         
-        print("[KEMAHASISWAAN] Menunggu halaman memuat sempurna (10s)...")
-        time.sleep(10)
-
-        html = driver.page_source
-        soup = BeautifulSoup(html, "html.parser")
-
-        # Menargetkan kontainer "Latest posts"
-        latest_section = soup.find("div", class_="post-module-3")
-        if not latest_section:
-            print("[KEMAHASISWAAN] Kontainer Latest posts tidak ditemukan.")
-            return []
-
-        articles = latest_section.find_all("article")
-        print(f"[KEMAHASISWAAN] Artikel ditemukan di DOM: {len(articles)}")
-
-        # Ambil 3 artikel teratas untuk mengantisipasi jika ada multi-post dalam satu waktu
-        for article in articles[:3]:
-            # 1. Ekstraksi Judul dan Link
-            h4_title = article.find("h4", class_="post-title")
-            if not h4_title or not h4_title.find("a"):
-                continue
-            a_tag = h4_title.find("a")
-            title = a_tag.get_text(strip=True)
-            link = a_tag.get("href", "")
-
-            # 2. Ekstraksi Kategori Berita
-            cat_span = article.find("span", class_="post-cat")
-            category = cat_span.get_text(strip=True) if cat_span else "General"
-
-            # 3. Ekstraksi Komponen Tanggal & Views
-            meta_div = article.find("div", class_="entry-meta")
-            date = "N/A"
-            views = "0 views"
-            if meta_div:
-                if date_span := meta_div.find("span", class_="post-on"):
-                    date = date_span.get_text(strip=True)
-                if views_span := meta_div.find("span", class_="post-by"):
-                    views = views_span.get_text(strip=True)
-
-            # 4. Ekstraksi Thumbnail Banner Gambar
+        print("[KEMAHASISWAAN] Menunggu bypass otomatis verifikasi Cloudflare (20s)...")
+        time.sleep(20)
+        
+        xml_content = driver.page_source
+        soup = BeautifulSoup(xml_content, "html.parser")
+        
+        # Ekstraksi berbasis standardisasi tag html.parser (lowercase)
+        items = soup.find_all("item")
+        if not items:
+            items = soup.select("channel item")
+            
+        print(f"[KEMAHASISWAAN] Item berita XML ditemukan: {len(items)}")
+        
+        for entry in items[:3]:
+            title = entry.find("title").get_text(strip=True) if entry.find("title") else "N/A"
+            link = entry.find("link").get_text(strip=True) if entry.find("link") else "https://kemahasiswaan.gunadarma.ac.id"
+            
+            pub_date_tag = entry.find("pubdate")
+            pub_date = pub_date_tag.get_text(strip=True) if pub_date_tag else "N/A"
+            if pub_date != "N/A" and "," in pub_date:
+                date_display = pub_date.split(",")[1].split("+")[0].strip()
+            else:
+                date_display = pub_date
+                
+            category = entry.find("category").get_text(strip=True) if entry.find("category") else "General"
+            
             image_url = None
-            if thumb_div := article.find("div", class_="img-hover-slide"):
-                style_attr = thumb_div.get("style", "")
-                if "url(" in style_attr:
-                    # Ambil string URL di dalam tanda kurung url('...')
-                    image_url = style_attr.split("url(")[1].split(")")[0].strip("'\"")
+            enclosure_tag = entry.find("enclosure")
+            if enclosure_tag and enclosure_tag.get("url"):
+                image_url = enclosure_tag.get("url")
 
             news_list.append({
                 "title": title,
                 "link": link,
-                "date": date,
+                "date": date_display,
                 "category": category,
-                "views": views,
+                "views": "Cloud RSS Feed",
                 "image": image_url
             })
-
-        print(f"[KEMAHASISWAAN] Total berita diproses: {len(news_list)}")
         return news_list
-
     except Exception as e:
-        print(f"[KEMAHASISWAAN ERROR] Gagal melakukan pengerukan data: {e}")
+        print(f"[KEMAHASISWAAN ERROR] Gagal memproses data XML Feed: {e}")
         return []
-        
     finally:
         if driver:
-            try:
-                driver.quit()
-            except:
-                pass
+            try: driver.quit()
+            except: pass
