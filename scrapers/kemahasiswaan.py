@@ -1,5 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 import time
 import os
@@ -33,18 +34,26 @@ def get_all_kemahasiswaan_news():
         print("[KEMAHASISWAAN] Menunggu bypass otomatis verifikasi Cloudflare (20s)...")
         time.sleep(20)
         
-        xml_content = driver.page_source
-        soup = BeautifulSoup(xml_content, "html.parser")
+        # Mengambil source teks mentah (raw text) untuk menghindari jebakan pembungkus elemen HTML hantu Chrome
+        try:
+            raw_text = driver.find_element(By.TAG_NAME, "pre").text
+            if not raw_text or "<rss" not in raw_text:
+                raw_text = driver.page_source
+        except:
+            raw_text = driver.page_source
+
+        # Memaksa BeautifulSoup membedah dokumen menggunakan internal html parser universal
+        soup = BeautifulSoup(raw_text, "html.parser")
         
-        # Ekstraksi berbasis standardisasi tag html.parser (lowercase)
-        items = soup.find_all("item")
-        if not items:
-            items = soup.select("channel item")
-            
+        # Pencarian objek menggunakan fungsi lambda universal agar kebal dari perubahan arsitektur DOM browser
+        items = soup.find_all(lambda tag: tag.name == 'item')
         print(f"[KEMAHASISWAAN] Item berita XML ditemukan: {len(items)}")
         
         for entry in items[:3]:
             title = entry.find("title").get_text(strip=True) if entry.find("title") else "N/A"
+            # Hapus pembungkus CDATA jika ikut terbaca oleh parser html hibrida
+            title = title.replace("<![CDATA[", "").replace("]]>", "").strip()
+            
             link = entry.find("link").get_text(strip=True) if entry.find("link") else "https://kemahasiswaan.gunadarma.ac.id"
             
             pub_date_tag = entry.find("pubdate")
@@ -75,5 +84,7 @@ def get_all_kemahasiswaan_news():
         return []
     finally:
         if driver:
-            try: driver.quit()
-            except: pass
+            try:
+                driver.quit()
+            except:
+                pass
