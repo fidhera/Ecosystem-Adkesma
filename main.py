@@ -121,15 +121,13 @@ def get_all_kemahasiswaan_news():
         driver = _build_driver()
         driver.get(feed_url)
         
-        # Alokasi jeda waktu agar tantangan Managed Challenge Cloudflare terselesaikan
         print("[KEMAHASISWAAN] Menunggu bypass otomatis verifikasi Cloudflare (20s)...")
         time.sleep(20)
         
-        # Ekstraksi source HTML/XML yang sudah terbuka setelah ter-bypass
         xml_content = driver.page_source
-        soup = BeautifulSoup(xml_content, "xml")
+        # FIX: Gunakan html.parser bawaan agar jalan mulus di cloud environment tanpa library luar
+        soup = BeautifulSoup(xml_content, "html.parser")
         
-        # Menyesuaikan dengan penargetan tag RSS 2.0 <item> dokumen asli lo
         items = soup.find_all("item")
         print(f"[KEMAHASISWAAN] Item berita XML ditemukan: {len(items)}")
         
@@ -137,7 +135,7 @@ def get_all_kemahasiswaan_news():
             title = entry.find("title").get_text(strip=True) if entry.find("title") else "N/A"
             link = entry.find("link").get_text(strip=True) if entry.find("link") else "https://kemahasiswaan.gunadarma.ac.id"
             
-            pub_date = entry.find("pubDate").get_text(strip=True) if entry.find("pubDate") else "N/A"
+            pub_date = entry.find("pubdate").get_text(strip=True) if entry.find("pubdate") else "N/A"
             if pub_date != "N/A" and "," in pub_date:
                 date_display = pub_date.split(",")[1].split("+")[0].strip()
             else:
