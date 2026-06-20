@@ -128,7 +128,8 @@ def send_to_discord(webhook_url, news, source_name):
 
     payload = {"username": display_name, "embeds": [embed]}
     try:
-        res = requests.post(webhook_url, json=payload, timeout=15)
+        from curl_cffi import requests as discord_req
+        res = discord_url_post = discord_req.post(webhook_url, json=payload, timeout=15)
         return res.status_code
     except: return None
 
