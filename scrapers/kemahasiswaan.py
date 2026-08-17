@@ -1,3 +1,10 @@
+<<<<<<< HEAD
+=======
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from bs4 import BeautifulSoup
+>>>>>>> e9f1cac2c8ac189adf72fb7b11823a0b05c0c076
 import time
 from bs4 import BeautifulSoup
 from selenium.webdriver.support.ui import WebDriverWait
@@ -6,8 +13,10 @@ from selenium.webdriver.common.by import By
 from scrapers.utils import build_driver
 
 def get_all_kemahasiswaan_news():
+    print("[KEMAHASISWAAN] Membuka jalur RSS XML lewat Stealth Browser...")
     driver = None
     news_list = []
+<<<<<<< HEAD
     target_url = "https://kemahasiswaan.gunadarma.ac.id/lomba-dan-kompetisi-1"
     print("[KEMAHASISWAAN] Membuka jendela browser (headed mode)...")
     try:
@@ -64,12 +73,59 @@ def get_all_kemahasiswaan_news():
                 style = thumb_div.get("style", "")
                 if "url(" in style and "placeholder" not in style:
                     image_url = style.split("url(")[1].split(")")[0].strip("'\"")
+=======
+    feed_url = "https://kemahasiswaan.gunadarma.ac.id/feed/posts"
+    
+    try:
+        driver = _build_driver()
+        driver.get(feed_url)
+        
+        print("[KEMAHASISWAAN] Menunggu bypass otomatis verifikasi Cloudflare (20s)...")
+        time.sleep(20)
+        
+        # Mengambil source teks mentah (raw text) untuk menghindari jebakan pembungkus elemen HTML hantu Chrome
+        try:
+            raw_text = driver.find_element(By.TAG_NAME, "pre").text
+            if not raw_text or "<rss" not in raw_text:
+                raw_text = driver.page_source
+        except:
+            raw_text = driver.page_source
+
+        # Memaksa BeautifulSoup membedah dokumen menggunakan internal html parser universal
+        soup = BeautifulSoup(raw_text, "html.parser")
+        
+        # Pencarian objek menggunakan fungsi lambda universal agar kebal dari perubahan arsitektur DOM browser
+        items = soup.find_all(lambda tag: tag.name == 'item')
+        print(f"[KEMAHASISWAAN] Item berita XML ditemukan: {len(items)}")
+        
+        for entry in items[:3]:
+            title = entry.find("title").get_text(strip=True) if entry.find("title") else "N/A"
+            # Hapus pembungkus CDATA jika ikut terbaca oleh parser html hibrida
+            title = title.replace("<![CDATA[", "").replace("]]>", "").strip()
+            
+            link = entry.find("link").get_text(strip=True) if entry.find("link") else "https://kemahasiswaan.gunadarma.ac.id"
+            
+            pub_date_tag = entry.find("pubdate")
+            pub_date = pub_date_tag.get_text(strip=True) if pub_date_tag else "N/A"
+            if pub_date != "N/A" and "," in pub_date:
+                date_display = pub_date.split(",")[1].split("+")[0].strip()
+            else:
+                date_display = pub_date
+                
+            category = entry.find("category").get_text(strip=True) if entry.find("category") else "General"
+            
+            image_url = None
+            enclosure_tag = entry.find("enclosure")
+            if enclosure_tag and enclosure_tag.get("url"):
+                image_url = enclosure_tag.get("url")
+>>>>>>> e9f1cac2c8ac189adf72fb7b11823a0b05c0c076
 
             news_list.append({
                 "title": title,
                 "link": link,
-                "date": date,
+                "date": date_display,
                 "category": category,
+<<<<<<< HEAD
                 "views": "Website Portal",
                 "image": image_url
             })
@@ -82,14 +138,27 @@ def get_all_kemahasiswaan_news():
             print(f"  {idx}. [{item['category']} | {item['date']}] {item['title']}")
             print(f"     Link: {item['link']}")
 
+=======
+                "views": "Cloud RSS Feed",
+                "image": image_url
+            })
+>>>>>>> e9f1cac2c8ac189adf72fb7b11823a0b05c0c076
         return news_list
-
     except Exception as e:
+<<<<<<< HEAD
         print(f"[KEMAHASISWAAN ERROR] Gagal pengerukan data: {e}")
+=======
+        print(f"[KEMAHASISWAAN ERROR] Gagal memproses data XML Feed: {e}")
+>>>>>>> e9f1cac2c8ac189adf72fb7b11823a0b05c0c076
         return []
     finally:
         if driver:
             try:
                 driver.quit()
+<<<<<<< HEAD
             except Exception:
                 pass
+=======
+            except:
+                pass
+>>>>>>> e9f1cac2c8ac189adf72fb7b11823a0b05c0c076
