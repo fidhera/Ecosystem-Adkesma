@@ -1,101 +1,95 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup
 import time
-import os
-
-def _build_driver():
-    options = Options()
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--window-size=1366,768')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        options.add_argument('--headless=new')
-        chrome_bin = os.getenv("CHROME_BIN")
-        if chrome_bin and os.path.exists(chrome_bin):
-            options.binary_location = chrome_bin
-
-    return webdriver.Chrome(options=options)
+from bs4 import BeautifulSoup
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from scrapers.utils import build_driver
 
 def get_all_kemahasiswaan_news():
     driver = None
     news_list = []
-    target_url = "https://kemahasiswaan.gunadarma.ac.id/"
-
-    print("[KEMAHASISWAAN] Memulai browser stealth...")
+    target_url = "https://kemahasiswaan.gunadarma.ac.id/lomba-dan-kompetisi-1"
+    print("[KEMAHASISWAAN] Membuka jendela browser (headed mode)...")
     try:
-        driver = _build_driver()
+        driver = build_driver(headless=False)
         driver.get(target_url)
-        
-        print("[KEMAHASISWAAN] Menunggu halaman memuat sempurna (10s)...")
-        time.sleep(10)
+        print("[KEMAHASISWAAN] Menunggu halaman memuat / selesaikan verifikasi Cloudflare di browser...")
 
-        html = driver.page_source
-        soup = BeautifulSoup(html, "html.parser")
+        # Menunggu elemen artikel muncul di DOM (maksimal 60 detik)
+        try:
+            WebDriverWait(driver, 60).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "article.hover-up-2, h4.post-title"))
+            )
+        except Exception:
+            print("[KEMAHASISWAAN] Timeout menunggu elemen artikel muncul.")
 
-        # Menargetkan kontainer "Latest posts"
-        latest_section = soup.find("div", class_="post-module-3")
-        if not latest_section:
-            print("[KEMAHASISWAAN] Kontainer Latest posts tidak ditemukan.")
-            return []
+        time.sleep(2)
+        soup = BeautifulSoup(driver.page_source, "html.parser")
 
-        articles = latest_section.find_all("article")
+        # Mencari semua artikel dengan class hover-up-2 sesuai struktur HTML
+        articles = soup.find_all("article", class_=lambda c: c and "hover-up-2" in c)
+        if not articles:
+            articles = [h.find_parent("article") for h in soup.find_all("h4", class_="post-title") if h.find_parent("article")]
+
         print(f"[KEMAHASISWAAN] Artikel ditemukan di DOM: {len(articles)}")
 
-        # Ambil 3 artikel teratas untuk mengantisipasi jika ada multi-post dalam satu waktu
-        for article in articles[:3]:
-            # 1. Ekstraksi Judul dan Link
-            h4_title = article.find("h4", class_="post-title")
+        seen_links = set()
+
+        for article in articles:
+            # 1. Ekstraksi Judul & Link
+            h4_title = article.find("h4", class_=lambda c: c and "post-title" in c)
             if not h4_title or not h4_title.find("a"):
                 continue
             a_tag = h4_title.find("a")
             title = a_tag.get_text(strip=True)
             link = a_tag.get("href", "")
+            if not link or link in seen_links:
+                continue
+            seen_links.add(link)
 
-            # 2. Ekstraksi Kategori Berita
-            cat_span = article.find("span", class_="post-cat")
-            category = cat_span.get_text(strip=True) if cat_span else "General"
+            # 2. Ekstraksi Kategori
+            cat_span = article.find("span", class_=lambda c: c and "post-cat" in c)
+            category = cat_span.get_text(strip=True) if cat_span else "Lomba & Kompetisi"
 
-            # 3. Ekstraksi Komponen Tanggal & Views
-            meta_div = article.find("div", class_="entry-meta")
-            date = "N/A"
-            views = "0 views"
-            if meta_div:
-                if date_span := meta_div.find("span", class_="post-on"):
-                    date = date_span.get_text(strip=True)
-                if views_span := meta_div.find("span", class_="post-by"):
-                    views = views_span.get_text(strip=True)
+            # 3. Ekstraksi Tanggal
+            date_span = article.find("span", class_="post-on")
+            date = date_span.get_text(strip=True) if date_span else "N/A"
 
-            # 4. Ekstraksi Thumbnail Banner Gambar
+            # 4. Ekstraksi Banner Gambar
             image_url = None
-            if thumb_div := article.find("div", class_="img-hover-slide"):
-                style_attr = thumb_div.get("style", "")
-                if "url(" in style_attr:
-                    # Ambil string URL di dalam tanda kurung url('...')
-                    image_url = style_attr.split("url(")[1].split(")")[0].strip("'\"")
+            img_tag = article.find("img")
+            if img_tag and img_tag.get("src") and "placeholder" not in img_tag.get("src", ""):
+                image_url = img_tag.get("src")
+            elif thumb_div := article.find("div", class_=lambda c: c and "img-hover-slide" in c):
+                style = thumb_div.get("style", "")
+                if "url(" in style and "placeholder" not in style:
+                    image_url = style.split("url(")[1].split(")")[0].strip("'\"")
 
             news_list.append({
                 "title": title,
                 "link": link,
                 "date": date,
                 "category": category,
-                "views": views,
+                "views": "Website Portal",
                 "image": image_url
             })
 
-        print(f"[KEMAHASISWAAN] Total berita diproses: {len(news_list)}")
+            if len(news_list) >= 3:
+                break
+
+        print(f"[KEMAHASISWAAN] Total berita diambil: {len(news_list)}")
+        for idx, item in enumerate(news_list, 1):
+            print(f"  {idx}. [{item['category']} | {item['date']}] {item['title']}")
+            print(f"     Link: {item['link']}")
+
         return news_list
 
     except Exception as e:
-        print(f"[KEMAHASISWAAN ERROR] Gagal melakukan pengerukan data: {e}")
+        print(f"[KEMAHASISWAAN ERROR] Gagal pengerukan data: {e}")
         return []
-        
     finally:
         if driver:
             try:
                 driver.quit()
-            except:
+            except Exception:
                 pass

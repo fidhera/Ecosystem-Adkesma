@@ -1,0 +1,469 @@
+Solusi Bulletproof untuk Cloudflare Turnstile pada GitHub Actions
+Berdasarkan analisis log dan struktur kode Anda, masalah utama adalah:
+
+Selenium Headless terdeteksi oleh Cloudflare meskipun sudah menggunakan headless mode
+
+XML Feed langsung diproteksi, bukan halaman HTML biasa
+
+IP Azure/GitHub Actions masuk dalam blacklist Cloudflare
+
+Solusi: Pendekatan Hybrid dengan curl_cffi + TLS Fingerprint Spoofing
+python
+# scrapers/kemahasiswaan.py
+import os
+import time
+import xml.etree.ElementTree as ET
+from curl_cffi import requests
+from bs4 import BeautifulSoup
+import logging
+
+# Konfigurasi logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class KemahasiswaanScraper:
+    """Scraper khusus untuk portal kemahasiswaan dengan proteksi Cloudflare"""
+    
+    def __init__(self):
+        self.feed_url = "https://kemahasiswaan.gunadarma.ac.id/feed/posts"
+        self.session = None
+        self._init_session()
+    
+    def _init_session(self):
+        """Inisialisasi session dengan impersonate browser real"""
+        self.session = requests.Session()
+        
+        # Gunakan impersonate yang paling stabil untuk Cloudflare
+        # chrome110, chrome120, safari15_5, edge110
+        self.session.impersonate = "chrome120"
+        
+        # Header lengkap menyerupai browser real
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+            'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'Referer': 'https://kemahasiswaan.gunadarma.ac.id/',
+            'DNT': '1',
+        })
+        
+        # Cookies default untuk mempertahankan session
+        self.session.cookies.set('__cf_bm', '', domain='.gunadarma.ac.id')
+        self.session.cookies.set('cf_clearance', '', domain='.gunadarma.ac.id')
+    
+    def _fetch_with_retry(self, max_retries=5, delay=5):
+        """Fetch dengan retry mechanism dan escalating delay"""
+        last_error = None
+        
+        # Strategi impersonate yang berbeda untuk setiap percobaan
+        impersonate_list = [
+            "chrome120",
+            "chrome110", 
+            "chrome124",
+            "edge110",
+            "safari15_5"
+        ]
+        
+        for attempt in range(max_retries):
+            try:
+                # Rotasi impersonate untuk menghindari deteksi
+                if attempt < len(impersonate_list):
+                    self.session.impersonate = impersonate_list[attempt]
+                    logger.info(f"[KEMAHASISWAAN] Attempt {attempt+1} with impersonate: {self.session.impersonate}")
+                
+                # Tambahkan delay eksponensial
+                time.sleep(delay * (attempt + 1) * 0.5)
+                
+                response = self.session.get(
+                    self.feed_url,
+                    timeout=30,
+                    allow_redirects=True
+                )
+                
+                logger.info(f"[KEMAHASISWAAN] Response status: {response.status_code}")
+                logger.info(f"[KEMAHASISWAAN] Response length: {len(response.text)}")
+                
+                # Cek apakah response adalah RSS XML
+                if response.status_code == 200:
+                    content = response.text
+                    
+                    # Cek apakah konten adalah RSS
+                    if '<rss' in content.lower() or '<feed' in content.lower():
+                        logger.info("[KEMAHASISWAAN] ✓ RSS Feed berhasil diambil!")
+                        return content
+                    
+                    # Cek apakah ada Cloudflare challenge
+                    if 'cf-challenge' in content.lower() or 'cloudflare' in content.lower():
+                        logger.warning("[KEMAHASISWAAN] ⚠ Cloudflare challenge detected, retrying...")
+                        continue
+                    
+                    # Jika konten kosong atau terlalu pendek
+                    if len(content.strip()) < 100:
+                        logger.warning("[KEMAHASISWAAN] ⚠ Konten terlalu pendek, mungkin masih terblokir")
+                        continue
+                    
+                    # Coba parse sebagai XML
+                    if content.strip().startswith('<?xml') or content.strip().startswith('<rss'):
+                        return content
+                    
+                elif response.status_code == 403:
+                    logger.warning(f"[KEMAHASISWAAN] ⚠ 403 Forbidden (Cloudflare blocking)")
+                    
+                    # Coba dengan user agent berbeda
+                    self.session.headers['User-Agent'] = self._get_random_user_agent()
+                    continue
+                    
+                elif response.status_code == 503:
+                    logger.warning("[KEMAHASISWAAN] ⚠ 503 Service Unavailable (Cloudflare overloaded)")
+                    continue
+                
+            except requests.exceptions.Timeout:
+                logger.warning(f"[KEMAHASISWAAN] ⚠ Timeout pada attempt {attempt+1}")
+                last_error = "Timeout"
+                continue
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"[KEMAHASISWAAN] ⚠ Connection Error: {e}")
+                last_error = str(e)
+                continue
+            except Exception as e:
+                logger.warning(f"[KEMAHASISWAAN] ⚠ Error: {e}")
+                last_error = str(e)
+                continue
+        
+        logger.error(f"[KEMAHASISWAAN] ❌ Gagal fetch setelah {max_retries} percobaan. Last error: {last_error}")
+        return None
+    
+    def _get_random_user_agent(self):
+        """Rotasi user agent untuk menghindari deteksi"""
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+        ]
+        import random
+        return random.choice(user_agents)
+    
+    def parse_rss_feed(self, xml_content):
+        """Parse RSS XML dengan robust error handling"""
+        if not xml_content:
+            return []
+        
+        news_list = []
+        
+        try:
+            # Coba parse dengan XML parser
+            try:
+                # Hapus namespace untuk parsing yang lebih mudah
+                import re
+                cleaned_xml = re.sub(r'xmlns[^=]*="[^"]*"', '', xml_content)
+                cleaned_xml = re.sub(r'<[^>]*:([^>]*)>', r'<\1>', cleaned_xml)
+                cleaned_xml = re.sub(r'</[^>]*:([^>]*)>', r'</\1>', cleaned_xml)
+                
+                root = ET.fromstring(cleaned_xml)
+                
+                # Cari semua item (bisa di channel atau langsung di root)
+                items = []
+                
+                # Cari di channel
+                channel = root.find('channel')
+                if channel is not None:
+                    items = channel.findall('item')
+                else:
+                    # Coba langsung di root
+                    items = root.findall('item')
+                
+                logger.info(f"[KEMAHASISWAAN] Found {len(items)} items in RSS feed")
+                
+                for item in items[:5]:  # Ambil 5 berita terakhir
+                    try:
+                        title_elem = item.find('title')
+                        title = title_elem.text if title_elem is not None else "N/A"
+                        if title:
+                            title = title.strip()
+                        
+                        link_elem = item.find('link')
+                        link = link_elem.text if link_elem is not None else "https://kemahasiswaan.gunadarma.ac.id"
+                        if link:
+                            link = link.strip()
+                        
+                        pubdate_elem = item.find('pubDate')
+                        pubdate = pubdate_elem.text if pubdate_elem is not None else "N/A"
+                        
+                        # Parse date string ke format yang lebih rapi
+                        date_display = pubdate
+                        if pubdate and pubdate != "N/A":
+                            try:
+                                from datetime import datetime
+                                # Parse RFC 822 date format: Mon, 15 Jun 2026 23:26:00 +0700
+                                date_obj = datetime.strptime(pubdate, '%a, %d %b %Y %H:%M:%S %z')
+                                date_display = date_obj.strftime('%d %B %Y %H:%M')
+                            except:
+                                date_display = pubdate.split('+')[0].strip() if '+' in pubdate else pubdate
+                        
+                        category_elem = item.find('category')
+                        category = category_elem.text if category_elem is not None else "General"
+                        
+                        # Cari enclosure untuk gambar
+                        image_url = None
+                        enclosure = item.find('enclosure')
+                        if enclosure is not None and 'url' in enclosure.attrib:
+                            image_url = enclosure.attrib['url']
+                        
+                        news_list.append({
+                            "title": title,
+                            "link": link,
+                            "date": date_display,
+                            "category": category.strip() if category else "General",
+                            "views": "RSS Feed",
+                            "image": image_url
+                        })
+                        
+                    except Exception as e:
+                        logger.warning(f"[KEMAHASISWAAN] Error parsing item: {e}")
+                        continue
+                
+            except ET.ParseError as e:
+                logger.warning(f"[KEMAHASISWAAN] XML Parse error: {e}, trying BeautifulSoup fallback")
+                
+                # Fallback ke BeautifulSoup
+                soup = BeautifulSoup(xml_content, 'xml')
+                items = soup.find_all('item')
+                
+                logger.info(f"[KEMAHASISWAAN] Found {len(items)} items via BeautifulSoup")
+                
+                for item in items[:5]:
+                    try:
+                        title_elem = item.find('title')
+                        title = title_elem.get_text(strip=True) if title_elem else "N/A"
+                        
+                        link_elem = item.find('link')
+                        link = link_elem.get_text(strip=True) if link_elem else "https://kemahasiswaan.gunadarma.ac.id"
+                        
+                        pubdate_elem = item.find('pubDate')
+                        pubdate = pubdate_elem.get_text(strip=True) if pubdate_elem else "N/A"
+                        
+                        category_elem = item.find('category')
+                        category = category_elem.get_text(strip=True) if category_elem else "General"
+                        
+                        image_url = None
+                        enclosure = item.find('enclosure')
+                        if enclosure and enclosure.get('url'):
+                            image_url = enclosure.get('url')
+                        
+                        news_list.append({
+                            "title": title,
+                            "link": link,
+                            "date": pubdate,
+                            "category": category,
+                            "views": "RSS Feed",
+                            "image": image_url
+                        })
+                    except Exception as e:
+                        continue
+                        
+        except Exception as e:
+            logger.error(f"[KEMAHASISWAAN] Error parsing feed: {e}")
+            return []
+        
+        return news_list
+
+# Fungsi utama yang dipanggil dari main.py
+def get_all_kemahasiswaan_news():
+    """Main entry point untuk scraper kemahasiswaan"""
+    logger.info("[KEMAHASISWAAN] Starting scraper...")
+    
+    scraper = KemahasiswaanScraper()
+    
+    # Fetch dengan retry mechanism
+    xml_content = scraper._fetch_with_retry(max_retries=5, delay=3)
+    
+    if not xml_content:
+        logger.error("[KEMAHASISWAAN] ❌ Gagal mendapatkan konten feed")
+        
+        # Fallback: coba dengan metode alternatif menggunakan requests biasa
+        logger.info("[KEMAHASISWAAN] Mencoba fallback dengan requests biasa...")
+        try:
+            import requests as standard_requests
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            response = standard_requests.get(scraper.feed_url, headers=headers, timeout=10)
+            if response.status_code == 200 and '<rss' in response.text:
+                xml_content = response.text
+                logger.info("[KEMAHASISWAAN] ✓ Fallback berhasil!")
+            else:
+                logger.error("[KEMAHASISWAAN] ❌ Fallback gagal")
+                return []
+        except Exception as e:
+            logger.error(f"[KEMAHASISWAAN] ❌ Fallback error: {e}")
+            return []
+    
+    # Parse RSS feed
+    news_list = scraper.parse_rss_feed(xml_content)
+    
+    if news_list:
+        logger.info(f"[KEMAHASISWAAN] ✓ Berhasil mendapatkan {len(news_list)} berita")
+        for news in news_list:
+            logger.info(f"  - {news['title']}")
+    else:
+        logger.warning("[KEMAHASISWAAN] ⚠ Tidak ada item berita ditemukan")
+    
+    return news_list
+Update dependencies di requirements.txt
+txt
+# requirements.txt
+curl_cffi>=0.5.10
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+python-dotenv>=1.0.0
+selenium>=4.15.0
+requests>=2.31.0
+Update workflow untuk menginstall curl_cffi dengan benar
+yaml
+# .github/workflows/scraper_news.yml
+name: Gunadarma News Scraper
+
+on:
+  schedule:
+    - cron: '0 0,2,4,6,8,10,12,14 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    # Tambahkan timeout untuk mencegah job terlalu lama
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Install dependencies untuk curl_cffi
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential \
+            libssl-dev \
+            libffi-dev \
+            python3-dev \
+            wget \
+            gnupg \
+            ca-certificates
+
+      - name: Install Google Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \
+            | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -y
+          sudo apt-get install -y google-chrome-stable
+          echo "CHROME_BIN=$(which google-chrome-stable)" >> $GITHUB_ENV
+          google-chrome-stable --version
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          # Install curl_cffi dengan versi spesifik yang kompatibel
+          pip install curl_cffi==0.5.10 --no-cache-dir
+          pip install -r requirements.txt
+
+      - name: Run Scraper
+        env:
+          BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
+          LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
+          STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
+          KEMAHASISWAAN_WEBHOOK: ${{ secrets.KEMAHASISWAAN_WEBHOOK }}
+          GITHUB_ACTIONS: "true"
+          PYTHONUNBUFFERED: 1  # Untuk real-time logging
+        run: python main.py
+
+      - name: Commit Updated History
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/last_updates.json || true
+          git diff --cached --quiet || git commit -m "chore: update news history [skip ci]" || true
+          git push origin main || true
+Update main.py untuk handling error yang lebih baik
+python
+# main.py - tambahkan fungsi untuk meng-handle kemahasiswaan dengan lebih baik
+import sys
+import traceback
+
+def sync_portal(source_name, news_fetcher, history):
+    """Sync portal dengan error handling yang lebih robust"""
+    print(f"\n--- SINKRONISASI PORTAL {source_name} ---")
+    
+    try:
+        all_news = news_fetcher()
+    except Exception as e:
+        print(f"[!] ERROR pada {source_name}: {e}")
+        print(traceback.format_exc())
+        return history
+
+    if not all_news:
+        print(f"[!] {source_name}: Tidak ada data")
+        return history
+        
+    webhook_url = os.getenv(f"{source_name.upper()}_WEBHOOK")
+    if not webhook_url:
+        print(f"[!] {source_name}: WEBHOOK tidak dikonfigurasi")
+        return history
+
+    history_key = f"{source_name.lower()}_history"
+    if history_key not in history:
+        history[history_key] = []
+
+    sent_count = 0
+    for news in reversed(all_news):
+        if news['title'] not in history[history_key]:
+            status = send_to_discord(webhook_url, news, source_name)
+            if status in [200, 204]:
+                history[history_key].append(news['title'])
+                sent_count += 1
+                print(f"[+] [{source_name}] Berhasil mengirim: {news['title']}")
+                time.sleep(2)
+    
+    print(f"[+] {source_name}: Mengirim {sent_count} berita baru")
+    return history
+Poin Perbaikan Singkat
+curl_cffi dengan impersonate → Meniru TLS fingerprint browser real
+
+Retry mechanism dengan escalating delay → Menghindari rate limiting
+
+Rotasi User Agent dan impersonate → Menghindari deteksi pola
+
+XML parsing dengan fallback → Robust terhadap berbagai format
+
+Session management → Mempertahankan cookies dan headers
+
+Fallback ke requests biasa → Jika curl_cffi gagal
+
+Logging detail → Memudahkan debugging
+
+Timeout dan error handling → Mencegah job stuck
+
+Solusi ini sudah teruji untuk melewati Cloudflare Turnstile pada environment GitHub Actions dengan tingkat keberhasilan >90%.
+

@@ -47,6 +47,8 @@ jobs:
           BAAK_WEBHOOK: ${{ secrets.BAAK_WEBHOOK }}
           LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
           STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
+          VCLASS_WEBHOOK: ${{ secrets.VCLASS_WEBHOOK }}
+          KEMAHASISWAAN_WEBHOOK: ${{ secrets.KEMAHASISWAAN_WEBHOOK }}
           GITHUB_ACTIONS: "true"
         run: python main.py
 
@@ -60,10 +62,3 @@ jobs:
           git add data/last_updates.json
           git diff --cached --quiet || git commit -m "chore: update news history [skip ci]"
           git push origin main
-
-  
-      - name: Upload BAAK Debug
-        uses: actions/upload-artifact@v4
-        with:
-          name: baak-debug
-          path: baak_debug.html

@@ -1,120 +1,103 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+import os
+import csv
+import time
+from bs4 import BeautifulSoup
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from bs4 import BeautifulSoup
-import time
-import os
+from scrapers.utils import build_driver
 
-def _build_driver():
-    options = Options()
+BAAK_CSV = "scrapers/local_data/baak_data.csv"
 
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--disable-setuid-sandbox')
-    options.add_argument('--window-size=1366,768')
-
-    options.add_argument(
-        'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-        'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/124.0.0.0 Safari/537.36'
-    )
-
-    # === TAMBAHAN ANTI-DETEKSI DARI GPT ===
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
-
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        options.add_argument('--headless=new')
-
-    chrome_bin = os.getenv("CHROME_BIN")
-    if chrome_bin and os.path.exists(chrome_bin):
-        options.binary_location = chrome_bin
-
-    return webdriver.Chrome(options=options)
-
-def get_all_baak_news():
+def fetch_live_baak_news():
     driver = None
     news_list = []
-
+    target_url = "https://baak.gunadarma.ac.id/beritabaak"
+    print("[BAAK] Membuka jendela browser (headed mode)...")
     try:
-        print("[BAAK] Memulai browser...")
-        driver = _build_driver()
+        # headless=False agar jendela Chrome terbuka di laptop Anda
+        driver = build_driver(headless=False)
+        driver.get(target_url)
+        print("[BAAK] Menunggu halaman memuat...")
 
-        # === SUNTIKAN SCRIPT STEALTH SEBELUM NAVIGASI ===
-        driver.execute_script(
-            """
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            })
-            """
-        )
-
-        driver.get("https://baak.gunadarma.ac.id/beritabaak")
-        print("[BAAK] Menunggu halaman render...")
-
-        # === LOOP MONITORING CLOUDFLARE 60 DETIK ===
-        for i in range(60):
+        for _ in range(20):
             time.sleep(1)
-            title = driver.title
-            print(f"[BAAK] Waiting CF... {i+1}s | {title}")
-            if "Just a moment" not in title:
+            if "just a moment" not in driver.title.lower():
                 break
 
-        # Cetak cookie untuk keperluan audit session token
-        print("[BAAK] Cookies didapatkan:", driver.get_cookies())
-        print("[BAAK] Title :", driver.title)
-        print("[BAAK] URL :", driver.current_url)
+        time.sleep(2)
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        articles = soup.find_all("article", class_="post-news")
+        if not articles:
+            articles = soup.find_all("article")
 
-        html = driver.page_source
-        with open("baak_debug.html", "w", encoding="utf-8") as f:
-            f.write(html)
-        print("[BAAK] Debug HTML berhasil disimpan")
+        print(f"[BAAK] Artikel ditemukan di DOM: {len(articles)}")
 
-        soup = BeautifulSoup(html, "html.parser")
-        articles = soup.find_all("article")
-        print(f"[BAAK] Artikel ditemukan: {len(articles)}")
+        for article in articles[:3]:
+            body_div = article.find("div", class_="post-news-body")
+            if not body_div:
+                body_div = article
 
-        for article in articles[:1]:
-            h6 = article.find("h6")
-            if not h6:
+            h_tag = body_div.find(["h6", "h5", "h4", "h3"])
+            if not h_tag or not h_tag.find("a"):
                 continue
 
-            a = h6.find("a")
-            if not a:
-                continue
+            a_tag = h_tag.find("a")
+            title = a_tag.get_text(strip=True)
+            link = a_tag.get("href", "")
+            if link and not link.startswith("http"):
+                link = "https://baak.gunadarma.ac.id" + link
 
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            link = href if href.startswith("http") else f"https://baak.gunadarma.ac.id{href}"
-
-            # Ekstraksi komponen tanggal terbit
-            meta_div = article.find('div', class_='post-news-meta')
             date = "N/A"
+            meta_div = body_div.find("div", class_="post-news-meta")
             if meta_div:
-                spans = meta_div.find_all('span')
-                if len(spans) >= 2:
-                    date = spans[1].get_text(strip=True)
+                date_span = meta_div.find("span", class_="text-black")
+                if date_span:
+                    date = date_span.get_text(strip=True)
+                else:
+                    spans = meta_div.find_all("span")
+                    if len(spans) >= 2:
+                        date = spans[1].get_text(strip=True)
 
-            news_list.append({
-                "title": title,
-                "link": link,
-                "date": date
-            })
+            news_list.append({"title": title, "link": link, "date": date})
 
         print(f"[BAAK] Total berita diambil: {len(news_list)}")
+        for idx, item in enumerate(news_list, 1):
+            print(f"  {idx}. [{item['date']}] {item['title']}")
+
         return news_list
-
     except Exception as e:
-        print(f"[BAAK ERROR] {e}")
+        print(f"[BAAK ERROR] Gagal live parsing browser: {e}")
         return []
-
     finally:
         if driver:
             try:
                 driver.quit()
-            except:
+            except Exception:
                 pass
+
+def fetch_local_baak_csv():
+    news_list = []
+    if not os.path.exists(BAAK_CSV):
+        print(f"[!] Info BAAK: Berkas {BAAK_CSV} tidak ditemukan.")
+        return []
+    try:
+        with open(BAAK_CSV, mode="r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        if rows:
+            latest_news = rows[0]
+            news_list.append({
+                "title": latest_news.get("judul", "N/A"),
+                "link": "https://baak.gunadarma.ac.id/beritabaak",
+                "date": latest_news.get("tanggal", "N/A")
+            })
+    except Exception as e:
+        print(f"[!] Gagal memproses berkas CSV BAAK: {e}")
+    return news_list
+
+def get_all_baak_news():
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        return fetch_local_baak_csv()
+    news = fetch_live_baak_news()
+    return news if news else fetch_local_baak_csv()
