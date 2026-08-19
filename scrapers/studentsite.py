@@ -11,7 +11,7 @@ def get_all_studentsite_news():
     target_url = "https://studentsite.gunadarma.ac.id/v4/pengumuman"
     try:
         print("[STUDENTSITE] Memulai proses background (headless)...")
-        # headless=True agar tidak memunculkan jendela browser di lokal
+        # headless=True biar tidak memunculkan jendela browser di lokal
         driver = build_driver(headless=True)
         driver.get(target_url)
         print("[STUDENTSITE] Menunggu halaman render...")

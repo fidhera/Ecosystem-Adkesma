@@ -48,7 +48,6 @@ jobs:
           LEPKOM_WEBHOOK: ${{ secrets.LEPKOM_WEBHOOK }}
           STUDENTSITE_WEBHOOK: ${{ secrets.STUDENTSITE_WEBHOOK }}
           VCLASS_WEBHOOK: ${{ secrets.VCLASS_WEBHOOK }}
-          KEMAHASISWAAN_WEBHOOK: ${{ secrets.KEMAHASISWAAN_WEBHOOK }}
           GITHUB_ACTIONS: "true"
         run: python main.py
 
